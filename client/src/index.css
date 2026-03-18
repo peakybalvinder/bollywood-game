@@ -1,0 +1,190 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base ─────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: #0A0505;
+  color: #f5e6c8;
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1C0C0C; }
+::-webkit-scrollbar-thumb { background: #A07500; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #FFD700; }
+
+/* ─── Selection ─────────────────────────────────────────────────────────── */
+::selection { background: #FFD70044; color: #FFD700; }
+
+/* ─── Ornate border utility ─────────────────────────────────────────────── */
+@layer components {
+  .border-ornate {
+    border: 1px solid #A0750044;
+    box-shadow:
+      0 0 0 1px #1C0C0C,
+      0 0 0 2px #A0750033,
+      inset 0 0 0 1px #A0750022;
+  }
+
+  .card-dark {
+    @apply bg-ink-800 border-ornate rounded-xl;
+  }
+
+  .gold-text {
+    background: linear-gradient(135deg, #C49200, #FFD700, #FFE566, #C49200);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    animation: shimmer 3s linear infinite;
+  }
+
+  .btn-gold {
+    @apply font-body font-semibold tracking-wide rounded-lg px-6 py-3
+           bg-gradient-to-b from-gold-500 to-gold-700
+           text-ink-950 shadow-lg
+           hover:from-gold-400 hover:to-gold-600
+           active:scale-95 transition-all duration-150
+           border border-gold-600;
+    text-shadow: none;
+    box-shadow: 0 4px 16px #FFD70055, 0 1px 0 #ffffffaa inset;
+  }
+
+  .btn-crimson {
+    @apply font-body font-semibold tracking-wide rounded-lg px-6 py-3
+           bg-gradient-to-b from-crimson-600 to-crimson-800
+           text-gold-300 shadow-lg
+           hover:from-crimson-500 hover:to-crimson-700
+           active:scale-95 transition-all duration-150
+           border border-crimson-600;
+    box-shadow: 0 4px 16px #CC000055;
+  }
+
+  .btn-ghost {
+    @apply font-body font-medium tracking-wide rounded-lg px-6 py-3
+           bg-transparent text-gold-400
+           border border-gold-800 hover:border-gold-500 hover:text-gold-300
+           active:scale-95 transition-all duration-150;
+  }
+
+  .input-dark {
+    @apply bg-ink-700 border border-ink-600 rounded-lg px-4 py-3
+           text-gold-300 placeholder-ink-600
+           focus:outline-none focus:border-gold-600 focus:ring-1 focus:ring-gold-600
+           transition-colors duration-150 w-full font-body;
+  }
+
+  /* Film strip decoration */
+  .film-strip::before,
+  .film-strip::after {
+    content: '';
+    display: block;
+    height: 20px;
+    background-image: repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent 12px,
+      #0A0505 12px,
+      #0A0505 18px
+    );
+    background-color: #1C0C0C;
+    border-top: 2px solid #3D1515;
+    border-bottom: 2px solid #3D1515;
+  }
+
+  .film-strip::after {
+    margin-top: 4px;
+  }
+}
+
+/* ─── Decorative corner marks ───────────────────────────────────────────── */
+.corner-deco {
+  position: relative;
+}
+.corner-deco::before,
+.corner-deco::after {
+  content: '✦';
+  position: absolute;
+  font-size: 10px;
+  color: #A07500;
+  opacity: 0.6;
+}
+.corner-deco::before { top: 6px; left: 10px; }
+.corner-deco::after { top: 6px; right: 10px; }
+
+/* ─── Letter tile ───────────────────────────────────────────────────────── */
+.letter-tile {
+  @apply inline-flex items-center justify-center
+         w-10 h-12 mx-0.5
+         font-display font-bold text-xl
+         border-b-2 border-gold-600
+         text-gold-300 uppercase tracking-widest
+         transition-all duration-300;
+}
+
+.letter-tile.revealed {
+  @apply text-gold-400 border-gold-500;
+  animation: reveal 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-shadow: 0 0 12px #FFD70066;
+}
+
+.letter-tile.space {
+  @apply border-transparent w-6;
+}
+
+/* ─── BOLLYWOOD lives ───────────────────────────────────────────────────── */
+.life-letter {
+  @apply font-display font-bold text-2xl tracking-widest
+         transition-all duration-500 select-none;
+}
+.life-letter.alive {
+  @apply text-crimson-400;
+  text-shadow: 0 0 12px #CC000088;
+}
+.life-letter.dead {
+  @apply text-ink-600 line-through;
+}
+
+/* ─── Toast / notification ──────────────────────────────────────────────── */
+.toast {
+  @apply fixed top-6 left-1/2 -translate-x-1/2 z-50
+         px-6 py-3 rounded-xl font-body font-medium text-sm
+         shadow-2xl animate-bounce-in;
+}
+.toast-success { @apply bg-green-900 border border-green-600 text-green-200; }
+.toast-error   { @apply bg-crimson-900 border border-crimson-600 text-red-200; }
+.toast-info    { @apply bg-ink-700 border border-gold-800 text-gold-300; }
+
+/* ─── Modal backdrop ─────────────────────────────────────────────────────── */
+.modal-backdrop {
+  @apply fixed inset-0 z-40 flex items-center justify-center p-4;
+  background: rgba(5, 2, 2, 0.85);
+  backdrop-filter: blur(6px);
+}
+
+/* ─── Background texture ─────────────────────────────────────────────────── */
+.bg-cinema {
+  background-color: #0A0505;
+  background-image:
+    radial-gradient(ellipse at 20% 50%, #3D000022 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, #7A590011 0%, transparent 40%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='%23ffffff04'/%3E%3C/svg%3E");
+}
