@@ -9,31 +9,29 @@ import MovieSearchModal from '../components/MovieSearchModal';
 import GameOverOverlay from '../components/GameOverOverlay';
 import Footer from '../components/Footer';
 
-/**
- * GamePage
- *
- * Key architecture:
- *   - `game`    = THIS player's own independent game state (blanks, lives, guesses)
- *                 null for host (host never guesses)
- *   - `players` = leaderboard rows — updated by `players_progress` from server
- *
- * Server events:
- *   game_started     → { players, playerGame (null for host), hint }
- *   guess_result     → { letter, correct, positions, playerGame } — PRIVATE to guesser only
- *   players_progress → { players }  — broadcast to all for leaderboard
- *   your_game_over   → { playerGame, players } — PRIVATE to player who finished
- *   player_joined / player_left — broadcast
- */
-export default function GamePage({ initialRoom, playerName, isHost, onLeave, showToast }) {
-  const [room]            = useState(initialRoom);
-  // Own game state (null for host, null before game starts)
-  const [game, setGame]   = useState(initialRoom.playerGame || null);
-  const [players, setPlayers] = useState(initialRoom.players);
-  const [showMovieSearch, setShowMovieSearch] = useState(isHost && !initialRoom.game);
-  const [showGameOver, setShowGameOver]       = useState(false);
-  const [lastRevealed, setLastRevealed]       = useState(new Set());
-  const [lastGuessInfo, setLastGuessInfo]     = useState(null);
-  const [guessing, setGuessing]               = useState(false);
+export default function GamePage({ initialRoom, playerName, onLeave, showToast }) {
+  const [room]    = useState(initialRoom);
+
+  // ── Reactive host tracking (changes on transfer_host) ──────────────────
+  const [hostId, setHostId]   = useState(initialRoom.hostId);
+  const isHost = socket.id === hostId;
+
+  // ── Game state ──────────────────────────────────────────────────────────
+  // gameConfig: { hint } — set when game starts, null before/between games
+  // Fixes the "host stuck on waiting screen" bug — we track this separately
+  // from `room` (which never updates) so the host can switch to spectator view
+  const [gameConfig, setGameConfig] = useState(initialRoom.game || null);
+
+  // This player's own board — null for host, null before game starts
+  const [game, setGame]             = useState(initialRoom.playerGame || null);
+  const [players, setPlayers]       = useState(initialRoom.players);
+  const [showMovieSearch, setShowMovieSearch] = useState(
+    initialRoom.hostId === socket.id && !initialRoom.game
+  );
+  const [showGameOver, setShowGameOver] = useState(false);
+  const [lastRevealed, setLastRevealed] = useState(new Set());
+  const [lastGuessInfo, setLastGuessInfo] = useState(null);
+  const [guessing, setGuessing]     = useState(false);
   const guessInfoTimeout = useRef(null);
 
   const mySocketId = socket.id;
@@ -41,32 +39,33 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
 
   // ── Socket events ─────────────────────────────────────────────────────
   useEffect(() => {
-    // Host starts the game → each player receives their own playerGame
-    socket.on('game_started', ({ players: ps, playerGame: pg }) => {
-      if (pg) setGame(pg);          // null for host — host has no game board
+    // Game started — host gets gameConfig, players get their own board
+    socket.on('game_started', ({ players: ps, playerGame: pg, gameConfig: gc }) => {
+      setGameConfig(gc || { hint: null }); // ← this is what fixes host spectator view
+      if (pg) setGame(pg);
       setPlayers(ps);
       setShowGameOver(false);
       setShowMovieSearch(false);
       setLastRevealed(new Set());
       setLastGuessInfo(null);
-      if (!isHost) showToast('Game started! Guess the movie 🎬', 'success');
+      if (socket.id !== hostId) showToast('Game started! Guess the movie 🎬', 'success');
     });
 
-    // Private: only the guesser receives this — updates THEIR board only
+    // Private — guesser's board update
     socket.on('guess_result', ({ letter, correct, positions, playerGame }) => {
       setGame(playerGame);
       setLastRevealed(new Set(positions || []));
       clearTimeout(guessInfoTimeout.current);
-      setLastGuessInfo({ letter, correct, by: 'You' });
+      setLastGuessInfo({ letter, correct });
       guessInfoTimeout.current = setTimeout(() => setLastGuessInfo(null), 2500);
     });
 
-    // Broadcast: all players get updated leaderboard rows (no game state leaked)
+    // Broadcast — leaderboard update for everyone including host
     socket.on('players_progress', ({ players: ps }) => {
       setPlayers(ps);
     });
 
-    // Private: this player's game just ended (won or lost)
+    // Private — this player won or lost
     socket.on('your_game_over', ({ playerGame, players: ps }) => {
       setGame(playerGame);
       setPlayers(ps);
@@ -74,9 +73,24 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
     });
 
     socket.on('player_joined', ({ players: ps }) => setPlayers(ps));
+
     socket.on('player_left', ({ players: ps }) => {
       setPlayers(ps);
       showToast('A player left the party.', 'info');
+    });
+
+    // Host role transferred
+    socket.on('host_transferred', ({ newHostId, players: ps }) => {
+      setHostId(newHostId);
+      setPlayers(ps);
+      if (newHostId === socket.id) {
+        showToast('You are now the host! 🎬', 'success');
+        // New host: close any game board, open movie picker if game is running
+        setGame(null);
+        if (gameConfig) setShowMovieSearch(false); // wait for next round
+      } else if (socket.id === hostId) {
+        showToast('Host role transferred.', 'info');
+      }
     });
 
     return () => {
@@ -86,10 +100,11 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
       socket.off('your_game_over');
       socket.off('player_joined');
       socket.off('player_left');
+      socket.off('host_transferred');
     };
-  }, [showToast, isHost]);
+  }, [showToast, hostId, gameConfig]);
 
-  // ── Guess handler ─────────────────────────────────────────────────────
+  // ── Guess ─────────────────────────────────────────────────────────────
   const handleGuess = useCallback((letter) => {
     if (!isPlaying || guessing) return;
     setGuessing(true);
@@ -107,13 +122,21 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
     setShowMovieSearch(false);
   }
 
-  // ── Play again (host re-opens movie picker) ───────────────────────────
+  // ── Play Again ────────────────────────────────────────────────────────
   function handlePlayAgain() {
     setShowGameOver(false);
     setGame(null);
+    setGameConfig(null);
     setLastRevealed(new Set());
     setLastGuessInfo(null);
     if (isHost) setShowMovieSearch(true);
+  }
+
+  // ── Transfer host ─────────────────────────────────────────────────────
+  function handleTransferHost(newHostId) {
+    socket.emit('transfer_host', { newHostId }, ({ success, error }) => {
+      if (!success) showToast(error || 'Could not transfer host.', 'error');
+    });
   }
 
   // ── Copy invite link ──────────────────────────────────────────────────
@@ -127,8 +150,8 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
 
   const totalLetters    = game ? game.blanks.filter(c => c !== ' ').length : 0;
   const revealedLetters = game ? game.blanks.filter(c => c !== '_' && c !== ' ').length : 0;
+  const nonHostPlayers  = players.filter(p => !p.isHost);
 
-  // ── Render ────────────────────────────────────────────────────────────
   return (
     <div className="bg-cinema min-h-screen flex flex-col">
 
@@ -157,35 +180,27 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
       </header>
 
       {/* ── Main layout ── */}
-      {/*
-        Mobile layout:  single column, keyboard sticks to bottom
-        Tablet/desktop: 3-column (players | board | chat)
-      */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
 
-        {/* Left: Players (desktop only) */}
+        {/* Left: Players (desktop) */}
         <aside className="hidden lg:flex flex-col w-64 xl:w-72 shrink-0 p-4 border-r border-ink-700 overflow-y-auto">
           <PlayerList
             players={players}
             myId={mySocketId}
-            hostId={room.hostId}
+            hostId={hostId}
             roomName={room.name}
             roomId={room.id}
             isHost={isHost}
+            onTransferHost={handleTransferHost}
           />
         </aside>
 
         {/* Center: Game board */}
-        <main className={`flex-1 flex flex-col min-w-0 overflow-y-auto
-          ${!isHost ? 'pb-0 md:pb-6' : 'pb-6'}`}>
+        <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+          <div className="flex-1 flex flex-col items-center px-4 pt-6 gap-5 w-full max-w-2xl mx-auto pb-4">
 
-          {/* Scrollable content area */}
-          <div className="flex-1 flex flex-col items-center px-4 pt-6 gap-5 w-full max-w-2xl mx-auto
-            /* on mobile leave space for sticky keyboard */
-            pb-4 md:pb-0">
-
-            {/* Waiting state (non-host, before game starts) */}
-            {!game && !isHost && (
+            {/* ── Non-host: waiting for game to start ── */}
+            {!game && !isHost && !gameConfig && (
               <div className="text-center mt-12 animate-fade-in">
                 <div className="text-5xl mb-4 animate-flicker">🎞</div>
                 <h2 className="font-display font-bold text-2xl text-gold-400 mb-2">Waiting for Host</h2>
@@ -199,21 +214,19 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
               </div>
             )}
 
-            {/* Host waiting state */}
-            {!room.game && isHost && (
+            {/* ── Host: pre-game waiting screen ── */}
+            {isHost && !gameConfig && (
               <div className="text-center mt-12 animate-fade-in">
                 <div className="text-5xl mb-4">🎬</div>
                 <h2 className="font-display font-bold text-2xl text-gold-400 mb-2">
-                  {players.filter(p => !p.isHost).length === 0
-                    ? 'Waiting for players to join…'
-                    : 'Ready to start!'}
+                  {nonHostPlayers.length === 0 ? 'Waiting for players to join…' : 'Ready to start!'}
                 </h2>
                 <p className="text-gold-700 text-sm font-body mb-6">
-                  {players.filter(p => !p.isHost).length === 0
+                  {nonHostPlayers.length === 0
                     ? 'Share the room code with your friends.'
-                    : `${players.filter(p => !p.isHost).length} player${players.filter(p => !p.isHost).length > 1 ? 's' : ''} joined. Pick a movie to begin.`}
+                    : `${nonHostPlayers.length} player${nonHostPlayers.length > 1 ? 's' : ''} joined. Pick a movie to begin.`}
                 </p>
-                {players.filter(p => !p.isHost).length > 0 && (
+                {nonHostPlayers.length > 0 && (
                   <button onClick={() => setShowMovieSearch(true)} className="btn-gold px-8 py-3">
                     🎞 Pick a Movie
                   </button>
@@ -221,31 +234,85 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
               </div>
             )}
 
-            {/* Active game board */}
-            {game && (
-              <div className="w-full flex flex-col gap-5 animate-fade-in">
-
-                {/* Hint letters */}
-                {game.hint && (
-                  <div className="text-center text-gold-700 text-sm font-body">
-                    <span>Hint: </span>
-                    <span className="inline-flex gap-1 flex-wrap justify-center mx-1">
-                      {game.hint.toUpperCase().split('').map((l, i) => (
-                        <span key={i} className="font-mono font-bold text-gold-400 bg-ink-700 border border-gold-800 rounded px-1.5 py-0.5 text-sm">
+            {/* ── Host: spectator view during active game ── */}
+            {isHost && gameConfig && (
+              <div className="w-full animate-fade-in">
+                <div className="text-center card-dark rounded-xl py-6 px-4 mb-4">
+                  <div className="text-4xl mb-3">🎬</div>
+                  <p className="font-display font-bold text-xl text-gold-400 mb-1">Spectating</p>
+                  <p className="text-gold-700 text-sm font-body">Watch your players' progress in the panel →</p>
+                  {gameConfig.hint && (
+                    <p className="text-gold-700 text-xs mt-3">
+                      Hint given:{' '}
+                      {gameConfig.hint.toUpperCase().split('').map((l, i) => (
+                        <span key={i} className="font-mono font-bold text-gold-400 bg-ink-800 border border-gold-800 rounded px-1.5 py-0.5 text-sm mx-0.5">
                           {l}
                         </span>
                       ))}
-                    </span>
-                    <span> pre-revealed.</span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Full leaderboard visible to host during game */}
+                <div className="card-dark rounded-xl p-4">
+                  <p className="text-gold-700 text-xs uppercase tracking-widest mb-3">Live Progress</p>
+                  <div className="space-y-2">
+                    {nonHostPlayers.map((p) => {
+                      const pct = p.livesLeft !== null ? (p.livesLeft / 9) * 100 : 100;
+                      return (
+                        <div key={p.id} className="bg-ink-700 rounded-lg p-3 border border-ink-600">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-body font-semibold text-sm text-gold-300">{p.name}</span>
+                            <div className="flex items-center gap-2">
+                              {p.gameStatus === 'won'  && <span className="text-green-400 text-xs">🏆 Guessed!</span>}
+                              {p.gameStatus === 'lost' && <span className="text-crimson-400 text-xs">💔 Out</span>}
+                              {p.gameStatus === 'playing' && (
+                                <span className="text-gold-700 text-xs">{p.livesLeft} lives left</span>
+                              )}
+                              <span className="font-mono text-gold-500 text-sm font-bold">{p.score} pts</span>
+                            </div>
+                          </div>
+                          {/* Lives bar */}
+                          <div className="w-full bg-ink-800 rounded-full h-1">
+                            <div
+                              className={`h-1 rounded-full transition-all duration-500 ${
+                                p.gameStatus === 'won' ? 'bg-green-500' :
+                                p.gameStatus === 'lost' ? 'bg-crimson-600' : 'bg-gold-600'
+                              }`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Player: active game board ── */}
+            {!isHost && game && (
+              <div className="w-full flex flex-col gap-5 animate-fade-in">
+
+                {/* Hint */}
+                {game.hint && (
+                  <div className="text-center text-gold-700 text-sm font-body">
+                    Hint:{' '}
+                    {game.hint.toUpperCase().split('').map((l, i) => (
+                      <span key={i} className="font-mono font-bold text-gold-400 bg-ink-700 border border-gold-800 rounded px-1.5 py-0.5 text-sm mx-0.5">
+                        {l}
+                      </span>
+                    ))}
+                    {' '}pre-revealed.
                   </div>
                 )}
 
-                {/* Word blanks */}
+                {/* Blanks */}
                 <div className="py-2">
                   <MovieBlanks blanks={game.blanks} lastRevealed={lastRevealed} />
                 </div>
 
-                {/* Last guess feedback — only shown to the guesser */}
+                {/* Guess feedback */}
                 {lastGuessInfo && (
                   <div className={`text-center text-sm font-body animate-fade-in
                     ${lastGuessInfo.correct ? 'text-green-400' : 'text-crimson-400'}`}>
@@ -272,7 +339,7 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
                   </p>
                 </div>
 
-                {/* Keyboard — desktop inline, hidden on mobile (shown sticky below) */}
+                {/* Desktop keyboard */}
                 <div className="hidden md:block card-dark rounded-xl py-5 px-4">
                   <Keyboard
                     guessedLetters={game.guessedLetters}
@@ -284,27 +351,21 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
               </div>
             )}
 
-            {/* Host spectator message */}
-            {isHost && room.game && (
-              <div className="text-center text-gold-700 text-sm font-body italic py-2 card-dark rounded-xl w-full px-4">
-                You are the host — watch their progress in the player list 🎬
-              </div>
-            )}
-
             {/* Mobile player list */}
             <div className="lg:hidden w-full mt-2">
               <PlayerList
                 players={players}
                 myId={mySocketId}
-                hostId={room.hostId}
+                hostId={hostId}
                 roomName={room.name}
                 roomId={room.id}
                 isHost={isHost}
+                onTransferHost={handleTransferHost}
               />
             </div>
           </div>
 
-          {/* ── Mobile keyboard — sticky at the bottom, only for non-host players ── */}
+          {/* Mobile sticky keyboard */}
           {!isHost && game && (
             <div className="md:hidden sticky bottom-0 z-20 bg-ink-900 border-t border-ink-700 px-3 py-3 shadow-2xl">
               <Keyboard
@@ -318,16 +379,15 @@ export default function GamePage({ initialRoom, playerName, isHost, onLeave, sho
           )}
         </main>
 
-        {/* Right: Chat (tablet+) */}
+        {/* Right: Chat */}
         <aside className="hidden md:flex flex-col w-72 xl:w-80 shrink-0 p-4 border-l border-ink-700">
           <ChatPanel myId={mySocketId} playerName={playerName} />
         </aside>
       </div>
 
-      {/* ── Footer ── */}
       <Footer />
 
-      {/* ── Modals ── */}
+      {/* Modals */}
       {showMovieSearch && isHost && (
         <MovieSearchModal
           onSelectMovie={handleMovieSelected}

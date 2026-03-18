@@ -1,11 +1,18 @@
 import React from 'react';
 import clsx from 'clsx';
 
-const MEDAL   = ['🥇', '🥈', '🥉'];
+const MEDAL = ['🥇', '🥈', '🥉'];
 const LIVES_WORD = 'BOLLYWOOD';
 
-export default function PlayerList({ players = [], myId, hostId, roomName, roomId, isHost }) {
-  // Sort by score descending for leaderboard
+export default function PlayerList({
+  players = [],
+  myId,
+  hostId,
+  roomName,
+  roomId,
+  isHost,
+  onTransferHost,
+}) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
 
   function copyCode() {
@@ -23,11 +30,7 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
           <span className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded px-2 py-0.5 text-xs tracking-widest">
             {roomId}
           </span>
-          <button
-            onClick={copyCode}
-            className="text-gold-700 hover:text-gold-400 text-xs transition-colors"
-            title="Copy room code"
-          >
+          <button onClick={copyCode} className="text-gold-700 hover:text-gold-400 text-xs transition-colors" title="Copy code">
             📋
           </button>
         </div>
@@ -36,38 +39,34 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
       {/* Players */}
       <div className="card-dark rounded-xl p-4 flex-1 overflow-y-auto">
         <p className="text-gold-700 text-xs uppercase tracking-widest mb-4">
-          Players &nbsp;
-          <span className="text-gold-600 normal-case">{players.length} / 5 max</span>
+          Players <span className="text-gold-600 normal-case">{players.length} / 5 max</span>
         </p>
 
         <div className="space-y-2">
           {sorted.map((player, idx) => {
             const isMe      = player.id === myId;
             const isHostRow = player.id === hostId;
-
-            // Lives mini-bar (visible to host for non-host players mid-game)
-            const showLives = isHost && !player.isHost && player.livesLeft !== null;
-            const livesLeft = player.livesLeft ?? LIVES_WORD.length;
+            const livesLeft  = player.livesLeft ?? LIVES_WORD.length;
             const gameStatus = player.gameStatus;
+            const showLives  = isHost && !player.isHost && player.livesLeft !== null && gameStatus === 'playing';
 
             return (
               <div
                 key={player.id}
                 className={clsx(
                   'rounded-lg p-3 border transition-all duration-300',
-                  isMe        ? 'bg-gold-900 border-gold-700'   : 'bg-ink-700 border-ink-600',
+                  isMe           ? 'bg-gold-900 border-gold-700' : 'bg-ink-700 border-ink-600',
                   gameStatus === 'won'  && 'border-green-700',
                   gameStatus === 'lost' && 'border-crimson-800',
                 )}
               >
                 <div className="flex items-center gap-2">
-                  {/* Medal / icon */}
+                  {/* Icon */}
                   <span className="text-base w-6 text-center shrink-0">
-                    {player.isHost
-                      ? '🎬'
-                      : (gameStatus === 'won'  ? '🏆'
-                       : gameStatus === 'lost' ? '💔'
-                       : (player.score > 0 && idx < 3 ? MEDAL[idx] : '🎭'))}
+                    {player.isHost ? '🎬'
+                      : gameStatus === 'won'  ? '🏆'
+                      : gameStatus === 'lost' ? '💔'
+                      : (player.score > 0 && idx < 3 ? MEDAL[idx] : '🎭')}
                   </span>
 
                   {/* Name + badges */}
@@ -80,25 +79,17 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
                         {player.name}
                       </span>
                       {isHostRow && (
-                        <span className="text-xs bg-crimson-800 text-crimson-300 border border-crimson-700 rounded px-1.5 py-0.5 leading-none">
-                          HOST
-                        </span>
+                        <span className="text-xs bg-crimson-800 text-crimson-300 border border-crimson-700 rounded px-1.5 py-0.5 leading-none">HOST</span>
                       )}
                       {isMe && !isHostRow && (
-                        <span className="text-xs bg-gold-900 text-gold-500 border border-gold-800 rounded px-1.5 py-0.5 leading-none">
-                          YOU
-                        </span>
+                        <span className="text-xs bg-gold-900 text-gold-500 border border-gold-800 rounded px-1.5 py-0.5 leading-none">YOU</span>
                       )}
-                      {gameStatus === 'won' && (
-                        <span className="text-xs text-green-400 leading-none">✓ Guessed!</span>
-                      )}
-                      {gameStatus === 'lost' && (
-                        <span className="text-xs text-crimson-400 leading-none">Out of lives</span>
-                      )}
+                      {gameStatus === 'won'  && <span className="text-xs text-green-400">✓ Guessed!</span>}
+                      {gameStatus === 'lost' && <span className="text-xs text-crimson-400">Out of lives</span>}
                     </div>
 
-                    {/* Host view: mini BOLLYWOOD lives bar per player */}
-                    {showLives && gameStatus === 'playing' && (
+                    {/* Host view: mini lives bar */}
+                    {showLives && (
                       <div className="mt-1 flex gap-0.5">
                         {LIVES_WORD.split('').map((ch, i) => (
                           <span
@@ -121,6 +112,22 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
                     <span className="text-gold-800 text-xs ml-0.5">pts</span>
                   </div>
                 </div>
+
+                {/* Make Host button — only shown to current host, for non-host players */}
+                {isHost && !player.isHost && onTransferHost && (
+                  <div className="mt-2 pt-2 border-t border-ink-600">
+                    <button
+                      onClick={() => {
+                        if (window.confirm(`Make ${player.name} the new host?`)) {
+                          onTransferHost(player.id);
+                        }
+                      }}
+                      className="w-full text-xs text-gold-700 hover:text-gold-400 border border-ink-600 hover:border-gold-700 rounded px-2 py-1 transition-colors font-body"
+                    >
+                      👑 Make Host
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -128,7 +135,7 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
       </div>
 
       <div className="text-center text-gold-800 text-xs font-body px-2">
-        Score = lives left × 10 + 20
+        Score = lives left × 10 + 20 · Accumulates across rounds
       </div>
     </div>
   );

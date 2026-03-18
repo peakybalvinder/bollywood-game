@@ -1,15 +1,15 @@
 /**
  * Bollywood Movie Guessing Game — Backend Server
  *
- * Architecture: each non-host player has their OWN independent game state.
- * Guesses from Player 2 never affect Player 1's blanks / lives.
- * The host is a spectator who sees all players' progress.
+ * Per-player independent game state.
+ * Scores accumulate across games within a session.
+ * Host can transfer host role to any other player.
  */
 
 const express = require('express');
-const http = require('http');
+const http    = require('http');
 const { Server } = require('socket.io');
-const cors = require('cors');
+const cors   = require('cors');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
@@ -22,11 +22,11 @@ const io = new Server(server, {
 });
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const MAX_PLAYERS  = 5;
-const LIVES_WORD   = 'BOLLYWOOD';
-const INACTIVITY_MS      = 5 * 60 * 1000;
+const MAX_PLAYERS         = 5;
+const LIVES_WORD          = 'BOLLYWOOD';
+const INACTIVITY_MS       = 5 * 60 * 1000;
 const INACTIVITY_CHECK_MS = 30_000;
-const OMDB_API_KEY = process.env.OMDB_API_KEY || '';
+const OMDB_API_KEY        = process.env.OMDB_API_KEY || '';
 
 // ─── In-memory store ─────────────────────────────────────────────────────────
 const rooms = new Map();
@@ -37,10 +37,10 @@ function mkPlayer(socketId, name, isHost = false) {
     id: socketId,
     name,
     isHost,
-    score: 0,
+    score: 0,              // cumulative across all games in the session
     guessedCorrectly: false,
     lastActivity: Date.now(),
-    playerGame: null, // filled when game starts; null for host
+    playerGame: null,
   };
 }
 
@@ -51,15 +51,13 @@ function mkRoom(roomId, roomName, maxPlayers, hostSocketId) {
     maxPlayers: Math.min(maxPlayers, MAX_PLAYERS),
     hostId: hostSocketId,
     players: [],
-    game: null,   // shared config: { movieName, hint }
+    game: null,   // shared config: { movieName, hint } — set when game starts
     chat: [],
     status: 'waiting',
   };
 }
 
-/**
- * Per-player game state — mutable, independent for every player.
- */
+// Per-player independent game state
 function mkPlayerGame(movieName, hint) {
   const hintLetters = hint
     ? [...new Set(hint.toLowerCase().replace(/[^a-z]/g, '').split(''))]
@@ -75,38 +73,38 @@ function mkPlayerGame(movieName, hint) {
     wrongLetters: [],
     livesLeft: LIVES_WORD.length,
     status: 'playing',
+    _movieName: movieName, // internal ref for guess logic — not sent to client
   };
 }
 
 // ─── Game logic ───────────────────────────────────────────────────────────────
-function processGuess(playerGame, letter) {
+function processGuess(pg, letter) {
   const l = letter.toLowerCase();
-  if (playerGame.guessedLetters.includes(l)) return { alreadyGuessed: true };
+  if (pg.guessedLetters.includes(l)) return { alreadyGuessed: true };
 
-  playerGame.guessedLetters.push(l);
-  const movieLower = playerGame._movieName.toLowerCase(); // attached temporarily
+  pg.guessedLetters.push(l);
+  const lower = pg._movieName.toLowerCase();
   const positions = [];
 
-  for (let i = 0; i < movieLower.length; i++) {
-    if (movieLower[i] === l) {
+  for (let i = 0; i < lower.length; i++) {
+    if (lower[i] === l) {
       positions.push(i);
-      playerGame.blanks[i] = playerGame._movieName[i];
+      pg.blanks[i] = pg._movieName[i];
     }
   }
 
   if (positions.length > 0) return { correct: true, positions };
 
-  playerGame.wrongLetters.push(l.toUpperCase());
-  playerGame.livesLeft -= 1;
+  pg.wrongLetters.push(l.toUpperCase());
+  pg.livesLeft -= 1;
   return { correct: false };
 }
 
-function isWon(playerGame) {
-  return !playerGame.blanks.includes('_');
+function isWon(pg) {
+  return !pg.blanks.includes('_');
 }
 
 // ─── Serialisers ─────────────────────────────────────────────────────────────
-/** What a player sees of their own game (movieName only after it ends). */
 function publicPlayerGame(pg, movieName) {
   const g = {
     blanks:         pg.blanks,
@@ -120,35 +118,32 @@ function publicPlayerGame(pg, movieName) {
   return g;
 }
 
-/**
- * Public player row — includes progress so host can track everyone.
- * Other players only see name/score/guessedCorrectly; livesLeft/gameStatus
- * are also included here (client-side the host decides what to display).
- */
 function publicPlayerRow(p) {
   return {
-    id:              p.id,
-    name:            p.name,
-    isHost:          p.isHost,
-    score:           p.score,
+    id:               p.id,
+    name:             p.name,
+    isHost:           p.isHost,
+    score:            p.score,
     guessedCorrectly: p.guessedCorrectly,
-    livesLeft:       p.playerGame ? p.playerGame.livesLeft  : null,
-    gameStatus:      p.playerGame ? p.playerGame.status     : null,
-    guessedCount:    p.playerGame ? p.playerGame.guessedLetters.length : 0,
+    livesLeft:        p.playerGame ? p.playerGame.livesLeft : null,
+    gameStatus:       p.playerGame ? p.playerGame.status   : null,
+    guessedCount:     p.playerGame ? p.playerGame.guessedLetters.length : 0,
   };
 }
 
-/** Room snapshot for the join callback — includes this player's own game. */
 function publicRoom(room, forPlayerId) {
   const me = room.players.find((p) => p.id === forPlayerId);
   return {
-    id:          room.id,
-    name:        room.name,
-    maxPlayers:  room.maxPlayers,
-    hostId:      room.hostId,
-    players:     room.players.map(publicPlayerRow),
-    game:        room.game ? { hint: room.game.hint } : null,
-    playerGame:  (me && me.playerGame) ? publicPlayerGame(me.playerGame, room.game?.movieName) : null,
+    id:         room.id,
+    name:       room.name,
+    maxPlayers: room.maxPlayers,
+    hostId:     room.hostId,
+    players:    room.players.map(publicPlayerRow),
+    // Send game config (hint only, never movieName) so host spectator screen works
+    game:       room.game ? { hint: room.game.hint } : null,
+    playerGame: (me && me.playerGame)
+      ? publicPlayerGame(me.playerGame, room.game?.movieName)
+      : null,
     status:      room.status,
     chatHistory: room.chat.slice(-50),
   };
@@ -203,7 +198,6 @@ io.on('connection', (socket) => {
     rooms.set(roomId, room);
     socket.join(roomId);
     socket.data.roomId = roomId;
-
     console.log(`[ROOM] ${roomId} created by ${playerName}`);
     cb({ success: true, roomId, room: publicRoom(room, socket.id) });
   });
@@ -219,17 +213,15 @@ io.on('connection', (socket) => {
 
     const player = mkPlayer(socket.id, playerName || 'Guest');
 
-    // If game is already running, give the new player their own fresh game state
+    // Late join — give them a fresh game if one is already running
     if (room.game && room.status === 'playing') {
       player.playerGame = mkPlayerGame(room.game.movieName, room.game.hint);
-      player.playerGame._movieName = room.game.movieName; // temp ref for guess processing
     }
 
     room.players.push(player);
     socket.join(id);
     socket.data.roomId = id;
 
-    // Notify others
     io.to(id).emit('player_joined', {
       player:  publicPlayerRow(player),
       players: room.players.map(publicPlayerRow),
@@ -242,29 +234,25 @@ io.on('connection', (socket) => {
   // ── Start game ────────────────────────────────────────────────────────
   socket.on('start_game', ({ movieName, hint }, cb) => {
     const room = rooms.get(socket.data.roomId);
-    if (!room)                         return cb({ success: false, error: 'Room not found.' });
-    if (room.hostId !== socket.id)     return cb({ success: false, error: 'Only the host can start the game.' });
-    if (!movieName?.trim())            return cb({ success: false, error: 'Please provide a movie name.' });
+    if (!room)                     return cb({ success: false, error: 'Room not found.' });
+    if (room.hostId !== socket.id) return cb({ success: false, error: 'Only the host can start the game.' });
+    if (!movieName?.trim())        return cb({ success: false, error: 'Please provide a movie name.' });
 
     const name = movieName.trim();
-
-    // Shared config (never mutated)
-    room.game = { movieName: name, hint: hint || null };
+    room.game   = { movieName: name, hint: hint || null };
     room.status = 'playing';
 
-    // Give every non-host player a fresh independent game state
+    // Reset per-round state — scores are NOT reset (they accumulate)
     room.players.forEach((p) => {
-      p.score           = 0;
       p.guessedCorrectly = false;
       if (!p.isHost) {
-        p.playerGame           = mkPlayerGame(name, hint);
-        p.playerGame._movieName = name; // temp ref for guess logic
+        p.playerGame = mkPlayerGame(name, hint);
       }
     });
 
     const publicPlayers = room.players.map(publicPlayerRow);
 
-    // Emit individually so each player gets their own game state
+    // Send each player their own game state privately
     room.players.forEach((p) => {
       const sock = io.sockets.sockets.get(p.id);
       if (!sock) return;
@@ -272,6 +260,8 @@ io.on('connection', (socket) => {
         players:    publicPlayers,
         playerGame: p.isHost ? null : publicPlayerGame(p.playerGame, name),
         hint:       room.game.hint,
+        // Send game config to host so it can switch to spectator view
+        gameConfig: { hint: room.game.hint },
       });
     });
 
@@ -284,9 +274,9 @@ io.on('connection', (socket) => {
     const room   = rooms.get(socket.data.roomId);
     const player = room?.players.find((p) => p.id === socket.id);
 
-    if (!room || !room.game)             return cb({ success: false, error: 'No active game.' });
-    if (!player || !player.playerGame)   return cb({ success: false, error: 'You are not a player in this game.' });
-    if (player.playerGame.status !== 'playing') return cb({ success: false, error: 'Your game is already over.' });
+    if (!room || !room.game)                      return cb({ success: false, error: 'No active game.' });
+    if (!player || !player.playerGame)            return cb({ success: false, error: 'You are not a player in this game.' });
+    if (player.playerGame.status !== 'playing')   return cb({ success: false, error: 'Your game is already over.' });
     if (!letter || letter.length !== 1 || !/[a-zA-Z]/.test(letter)) return cb({ success: false, error: 'Invalid letter.' });
 
     player.lastActivity = Date.now();
@@ -294,36 +284,35 @@ io.on('connection', (socket) => {
     const result = processGuess(player.playerGame, letter);
     if (result.alreadyGuessed) return cb({ success: false, error: 'Already guessed.' });
 
-    // Check end conditions for THIS player
     let gameOver = false;
     if (isWon(player.playerGame)) {
       player.playerGame.status = 'won';
-      player.score             = player.playerGame.livesLeft * 10 + 20;
+      player.score            += player.playerGame.livesLeft * 10 + 20; // += accumulate
       player.guessedCorrectly  = true;
-      gameOver                 = true;
+      gameOver = true;
     } else if (player.playerGame.livesLeft <= 0) {
       player.playerGame.status = 'lost';
-      gameOver                 = true;
+      gameOver = true;
     }
 
-    const updatedPlayerGame = publicPlayerGame(player.playerGame, room.game.movieName);
-    const publicPlayers     = room.players.map(publicPlayerRow);
+    const updatedPG     = publicPlayerGame(player.playerGame, room.game.movieName);
+    const publicPlayers = room.players.map(publicPlayerRow);
 
-    // 1. Tell the guesser about their updated board
+    // 1. Private to guesser — their board update
     socket.emit('guess_result', {
       letter:     letter.toUpperCase(),
       correct:    result.correct,
       positions:  result.positions || [],
-      playerGame: updatedPlayerGame,
+      playerGame: updatedPG,
     });
 
-    // 2. Broadcast updated progress to everyone (for leaderboard)
+    // 2. Broadcast to all — leaderboard update (no game state leaked)
     io.to(socket.data.roomId).emit('players_progress', { players: publicPlayers });
 
-    // 3. If this player's game is over, tell them privately
+    // 3. Private to guesser — game over notification
     if (gameOver) {
       socket.emit('your_game_over', {
-        playerGame: updatedPlayerGame,
+        playerGame: updatedPG,
         players:    publicPlayers,
       });
     }
@@ -331,15 +320,45 @@ io.on('connection', (socket) => {
     cb({ success: true });
   });
 
+  // ── Transfer host ─────────────────────────────────────────────────────
+  socket.on('transfer_host', ({ newHostId }, cb) => {
+    const room = rooms.get(socket.data.roomId);
+    if (!room)                     return cb({ success: false, error: 'Room not found.' });
+    if (room.hostId !== socket.id) return cb({ success: false, error: 'Only the current host can transfer the role.' });
+
+    const newHost = room.players.find((p) => p.id === newHostId);
+    const oldHost = room.players.find((p) => p.id === socket.id);
+
+    if (!newHost) return cb({ success: false, error: 'Player not found.' });
+    if (newHost.id === socket.id) return cb({ success: false, error: 'You are already the host.' });
+
+    // Transfer
+    room.hostId   = newHostId;
+    oldHost.isHost = false;
+    newHost.isHost = true;
+
+    // New host can no longer have a playerGame (they become spectator/host)
+    newHost.playerGame = null;
+
+    const publicPlayers = room.players.map(publicPlayerRow);
+
+    io.to(socket.data.roomId).emit('host_transferred', {
+      newHostId,
+      oldHostId: socket.id,
+      players:   publicPlayers,
+    });
+
+    console.log(`[HOST] ${newHost.name} is now the host of ${socket.data.roomId}`);
+    cb({ success: true });
+  });
+
   // ── Chat ──────────────────────────────────────────────────────────────
   socket.on('chat_message', ({ message }) => {
     const room   = rooms.get(socket.data.roomId);
     const player = room?.players.find((p) => p.id === socket.id);
-    if (!room || !player) return;
+    if (!room || !player || !message?.trim()) return;
 
     player.lastActivity = Date.now();
-    if (!message?.trim()) return;
-
     const msg = {
       id:         uuidv4().slice(0, 8),
       playerId:   socket.id,
@@ -386,5 +405,5 @@ app.get('/health', (_, res) => res.json({ status: 'ok', rooms: rooms.size }));
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🎬 Bollywood Game Server on http://localhost:${PORT}`);
-  console.log(OMDB_API_KEY ? '🔍 OMDB search enabled' : '⚠️  OMDB_API_KEY not set — using fallback list');
+  console.log(OMDB_API_KEY ? '🔍 OMDB search enabled' : '⚠️  OMDB_API_KEY not set — free-text only');
 });
