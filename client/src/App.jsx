@@ -6,17 +6,13 @@ import JoinPartyModal from './components/JoinPartyModal';
 import GamePage from './pages/GamePage';
 import Toast from './components/Toast';
 
-/**
- * Top-level view states:
- *   'dashboard'  → landing page
- *   'game'       → in a room / playing
- */
 export default function App() {
   const [view, setView] = useState('dashboard');
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
-  const [roomData, setRoomData] = useState(null);   // { room, playerName, isHost }
-  const [toast, setToast] = useState(null);          // { type, message }
+  const [autoJoinCode, setAutoJoinCode] = useState(null); // room code from URL
+  const [roomData, setRoomData] = useState(null);
+  const [toast, setToast] = useState(null);
 
   // ── Toast helper ──────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
@@ -25,21 +21,31 @@ export default function App() {
     return () => clearTimeout(t);
   }, []);
 
-  // ── Socket: global lifecycle events ──────────────────────────────────
+  // ── Auto-join from URL ?room=XXXXXX ───────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('room');
+    if (code && code.length === 6) {
+      setAutoJoinCode(code.toUpperCase());
+      setShowJoin(true);
+      // Clean the URL so it doesn't re-trigger on refresh confusion
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // ── Socket lifecycle ──────────────────────────────────────────────────
   useEffect(() => {
     socket.connect();
 
     socket.on('connect', () => console.log('[socket] connected:', socket.id));
     socket.on('disconnect', (reason) => console.log('[socket] disconnected:', reason));
 
-    // Host left → return to dashboard
     socket.on('host_left', ({ message }) => {
       showToast(message, 'error', 5000);
       setView('dashboard');
       setRoomData(null);
     });
 
-    // Inactivity kick
     socket.on('inactivity_kick', ({ message }) => {
       showToast(message || 'You were removed due to inactivity.', 'error', 5000);
       setView('dashboard');
@@ -55,19 +61,20 @@ export default function App() {
     };
   }, [showToast]);
 
-  // ── Activity ping every 60s to prevent inactivity kick ───────────────
+  // ── Activity ping every 60s ───────────────────────────────────────────
   useEffect(() => {
     if (view !== 'game') return;
     const id = setInterval(() => socket.emit('activity_ping'), 60_000);
     return () => clearInterval(id);
   }, [view]);
 
-  // ── Handlers ──────────────────────────────────────────────────────────
+  // ── Handlers ─────────────────────────────────────────────────────────
   function handleRoomReady(data) {
     setRoomData(data);
     setView('game');
     setShowCreate(false);
     setShowJoin(false);
+    setAutoJoinCode(null);
   }
 
   function handleLeaveGame() {
@@ -77,7 +84,11 @@ export default function App() {
     setRoomData(null);
   }
 
-  // ── Render ────────────────────────────────────────────────────────────
+  function handleCloseJoin() {
+    setShowJoin(false);
+    setAutoJoinCode(null);
+  }
+
   return (
     <div className="bg-cinema min-h-screen">
       {toast && <Toast type={toast.type} message={toast.message} />}
@@ -97,9 +108,10 @@ export default function App() {
           )}
           {showJoin && (
             <JoinPartyModal
-              onClose={() => setShowJoin(false)}
+              onClose={handleCloseJoin}
               onRoomReady={handleRoomReady}
               showToast={showToast}
+              initialCode={autoJoinCode}
             />
           )}
         </>

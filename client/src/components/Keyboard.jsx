@@ -7,11 +7,23 @@ const ROWS = [
   ['Z','X','C','V','B','N','M'],
 ];
 
-export default function Keyboard({ guessedLetters = [], wrongLetters = [], onGuess, disabled = false }) {
+/**
+ * On-screen keyboard.
+ * `compact` = true on mobile sticky bar: smaller keys, no hint text.
+ */
+export default function Keyboard({
+  guessedLetters = [],
+  wrongLetters = [],
+  onGuess,
+  disabled = false,
+  compact = false,
+}) {
   // Physical keyboard support
   useEffect(() => {
     function onKeyDown(e) {
       if (disabled) return;
+      // Ignore if user is typing in an input/textarea
+      if (['INPUT', 'TEXTAREA'].includes(e.target.tagName)) return;
       const key = e.key.toUpperCase();
       if (/^[A-Z]$/.test(key) && !guessedLetters.includes(key.toLowerCase())) {
         onGuess(key);
@@ -28,12 +40,18 @@ export default function Keyboard({ guessedLetters = [], wrongLetters = [], onGue
     return 'idle';
   }
 
+  // Compact mode: smaller keys that fit on phone width
+  const keyW = compact ? 'w-[8vw] max-w-[34px] min-w-[26px]' : 'w-9';
+  const keyH = compact ? 'h-9' : 'h-11';
+  const gap  = compact ? 'gap-0.5' : 'gap-1.5';
+  const rowGap = compact ? 'gap-1' : 'gap-2';
+
   return (
-    <div className="flex flex-col items-center gap-2">
+    <div className={clsx('flex flex-col items-center', rowGap)}>
       {ROWS.map((row, ri) => (
-        <div key={ri} className="flex gap-1.5">
+        <div key={ri} className={clsx('flex', gap)}>
           {row.map((letter) => {
-            const state = getKeyState(letter);
+            const state  = getKeyState(letter);
             const isUsed = state !== 'idle';
             return (
               <button
@@ -41,11 +59,13 @@ export default function Keyboard({ guessedLetters = [], wrongLetters = [], onGue
                 onClick={() => !isUsed && !disabled && onGuess(letter)}
                 disabled={isUsed || disabled}
                 className={clsx(
-                  'w-9 h-11 rounded-lg font-mono font-bold text-sm transition-all duration-200 select-none border active:scale-95',
-                  state === 'wrong' && 'bg-ink-800 border-crimson-900 text-crimson-900 cursor-not-allowed line-through opacity-40',
-                  state === 'correct' && 'bg-green-900 border-green-700 text-green-400 cursor-not-allowed opacity-70',
+                  keyW, keyH,
+                  'rounded font-mono font-bold text-xs sm:text-sm transition-all duration-150',
+                  'select-none border active:scale-95',
+                  state === 'wrong'  && 'bg-ink-800 border-crimson-900 text-crimson-900 cursor-not-allowed line-through opacity-40',
+                  state === 'correct' && 'bg-green-900 border-green-700 text-green-400 cursor-not-allowed opacity-60',
                   state === 'idle' && !disabled && 'bg-ink-700 border-ink-500 text-gold-300 hover:bg-ink-600 hover:border-gold-700 hover:text-gold-200 cursor-pointer shadow-sm',
-                  state === 'idle' && disabled && 'bg-ink-800 border-ink-700 text-gold-800 cursor-not-allowed opacity-50'
+                  state === 'idle' && disabled  && 'bg-ink-800 border-ink-700 text-gold-800 cursor-not-allowed opacity-50',
                 )}
               >
                 {letter}
@@ -54,9 +74,11 @@ export default function Keyboard({ guessedLetters = [], wrongLetters = [], onGue
           })}
         </div>
       ))}
-      <p className="text-gold-800 text-xs mt-1 font-body">
-        {disabled ? 'Waiting for game to start…' : 'Click a letter or press your keyboard'}
-      </p>
+      {!compact && (
+        <p className="text-gold-800 text-xs mt-0.5 font-body">
+          {disabled ? 'Waiting for game to start…' : 'Tap a letter or use your keyboard'}
+        </p>
+      )}
     </div>
   );
 }

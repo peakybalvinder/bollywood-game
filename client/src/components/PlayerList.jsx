@@ -1,10 +1,11 @@
 import React from 'react';
 import clsx from 'clsx';
 
-const MEDAL = ['🥇', '🥈', '🥉'];
+const MEDAL   = ['🥇', '🥈', '🥉'];
+const LIVES_WORD = 'BOLLYWOOD';
 
-export default function PlayerList({ players = [], myId, hostId, roomName, roomId }) {
-  // Sort by score desc for leaderboard display
+export default function PlayerList({ players = [], myId, hostId, roomName, roomId, isHost }) {
+  // Sort by score descending for leaderboard
   const sorted = [...players].sort((a, b) => b.score - a.score);
 
   function copyCode() {
@@ -36,57 +37,89 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
       <div className="card-dark rounded-xl p-4 flex-1 overflow-y-auto">
         <p className="text-gold-700 text-xs uppercase tracking-widest mb-4">
           Players &nbsp;
-          <span className="text-gold-600">{players.length}/{players.length + 1 > 5 ? 5 : '5 max'}</span>
+          <span className="text-gold-600 normal-case">{players.length} / 5 max</span>
         </p>
 
         <div className="space-y-2">
           {sorted.map((player, idx) => {
-            const isMe = player.id === myId;
-            const isHost = player.id === hostId;
+            const isMe      = player.id === myId;
+            const isHostRow = player.id === hostId;
+
+            // Lives mini-bar (visible to host for non-host players mid-game)
+            const showLives = isHost && !player.isHost && player.livesLeft !== null;
+            const livesLeft = player.livesLeft ?? LIVES_WORD.length;
+            const gameStatus = player.gameStatus;
+
             return (
               <div
                 key={player.id}
                 className={clsx(
-                  'flex items-center gap-3 rounded-lg p-3 transition-all duration-300',
-                  isMe ? 'bg-gold-900 border border-gold-700' : 'bg-ink-700 border border-ink-600',
-                  player.guessedCorrectly && 'border-green-700'
+                  'rounded-lg p-3 border transition-all duration-300',
+                  isMe        ? 'bg-gold-900 border-gold-700'   : 'bg-ink-700 border-ink-600',
+                  gameStatus === 'won'  && 'border-green-700',
+                  gameStatus === 'lost' && 'border-crimson-800',
                 )}
               >
-                {/* Rank / medal */}
-                <span className="text-base w-6 text-center shrink-0">
-                  {player.score > 0 && idx < 3 ? MEDAL[idx] : '🎭'}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Medal / icon */}
+                  <span className="text-base w-6 text-center shrink-0">
+                    {player.isHost
+                      ? '🎬'
+                      : (gameStatus === 'won'  ? '🏆'
+                       : gameStatus === 'lost' ? '💔'
+                       : (player.score > 0 && idx < 3 ? MEDAL[idx] : '🎭'))}
+                  </span>
 
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className={clsx(
-                      'font-body font-semibold text-sm truncate',
-                      isMe ? 'text-gold-300' : 'text-gold-400'
-                    )}>
-                      {player.name}
-                    </span>
-                    {isHost && (
-                      <span className="text-xs bg-crimson-800 text-crimson-300 border border-crimson-700 rounded px-1.5 py-0.5 font-body leading-none">
-                        HOST
+                  {/* Name + badges */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={clsx(
+                        'font-body font-semibold text-sm truncate',
+                        isMe ? 'text-gold-300' : 'text-gold-400',
+                      )}>
+                        {player.name}
                       </span>
-                    )}
-                    {isMe && (
-                      <span className="text-xs bg-gold-900 text-gold-500 border border-gold-800 rounded px-1.5 py-0.5 font-body leading-none">
-                        YOU
-                      </span>
+                      {isHostRow && (
+                        <span className="text-xs bg-crimson-800 text-crimson-300 border border-crimson-700 rounded px-1.5 py-0.5 leading-none">
+                          HOST
+                        </span>
+                      )}
+                      {isMe && !isHostRow && (
+                        <span className="text-xs bg-gold-900 text-gold-500 border border-gold-800 rounded px-1.5 py-0.5 leading-none">
+                          YOU
+                        </span>
+                      )}
+                      {gameStatus === 'won' && (
+                        <span className="text-xs text-green-400 leading-none">✓ Guessed!</span>
+                      )}
+                      {gameStatus === 'lost' && (
+                        <span className="text-xs text-crimson-400 leading-none">Out of lives</span>
+                      )}
+                    </div>
+
+                    {/* Host view: mini BOLLYWOOD lives bar per player */}
+                    {showLives && gameStatus === 'playing' && (
+                      <div className="mt-1 flex gap-0.5">
+                        {LIVES_WORD.split('').map((ch, i) => (
+                          <span
+                            key={i}
+                            className={clsx(
+                              'font-mono text-[9px] font-bold',
+                              i < livesLeft ? 'text-crimson-400' : 'text-ink-500 line-through',
+                            )}
+                          >
+                            {ch}
+                          </span>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {/* Guessed status */}
-                  {player.guessedCorrectly && (
-                    <p className="text-green-400 text-xs mt-0.5">✓ Guessed it!</p>
-                  )}
-                </div>
 
-                {/* Score */}
-                <div className="text-right shrink-0">
-                  <span className="font-mono font-bold text-sm text-gold-500">{player.score}</span>
-                  <span className="text-gold-800 text-xs ml-0.5">pts</span>
+                  {/* Score */}
+                  <div className="text-right shrink-0">
+                    <span className="font-mono font-bold text-sm text-gold-500">{player.score}</span>
+                    <span className="text-gold-800 text-xs ml-0.5">pts</span>
+                  </div>
                 </div>
               </div>
             );
@@ -94,9 +127,8 @@ export default function PlayerList({ players = [], myId, hostId, roomName, roomI
         </div>
       </div>
 
-      {/* Leaderboard legend */}
       <div className="text-center text-gold-800 text-xs font-body px-2">
-        Score = lives remaining × 10 + 20 base
+        Score = lives left × 10 + 20
       </div>
     </div>
   );

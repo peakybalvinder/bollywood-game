@@ -1,11 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import socket from '../socket';
 
-export default function JoinPartyModal({ onClose, onRoomReady, showToast }) {
-  const [step, setStep] = useState('code');    // 'code' | 'name'
-  const [roomCode, setRoomCode] = useState('');
+/**
+ * Join party modal.
+ * If `initialCode` is provided (from a shared URL), we skip the code entry step
+ * and go straight to the name step.
+ */
+export default function JoinPartyModal({ onClose, onRoomReady, showToast, initialCode = null }) {
+  const [step, setStep] = useState(initialCode ? 'name' : 'code');
+  const [roomCode, setRoomCode] = useState(initialCode || '');
   const [playerName, setPlayerName] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // If a code arrives after mount (edge case), jump to name step
+  useEffect(() => {
+    if (initialCode) {
+      setRoomCode(initialCode);
+      setStep('name');
+    }
+  }, [initialCode]);
 
   function handleVerifyCode() {
     if (!roomCode.trim() || roomCode.trim().length !== 6) {
@@ -51,6 +64,7 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast }) {
           </p>
         </div>
 
+        {/* Step 1: Code entry */}
         {step === 'code' && (
           <>
             <div>
@@ -68,7 +82,6 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast }) {
                 Ask your host for the 6-character code, or use their shared link.
               </p>
             </div>
-
             <div className="mt-8">
               <button onClick={handleVerifyCode} className="btn-gold w-full py-4">
                 Continue →
@@ -77,10 +90,12 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast }) {
           </>
         )}
 
+        {/* Step 2: Name entry */}
         {step === 'name' && (
           <>
-            {/* Code badge */}
+            {/* Show room code badge */}
             <div className="text-center mb-5">
+              <p className="text-gold-700 text-xs mb-2">Joining room</p>
               <span className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-4 py-1.5 text-sm tracking-widest">
                 {roomCode}
               </span>
@@ -100,10 +115,17 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast }) {
             </div>
 
             <div className="mt-8 flex gap-3">
-              <button onClick={() => setStep('code')} className="btn-ghost flex-1 py-4">
-                ← Back
-              </button>
-              <button onClick={handleJoin} disabled={loading} className="btn-gold flex-1 py-4">
+              {/* Only show Back if user typed the code manually (not from URL) */}
+              {!initialCode && (
+                <button onClick={() => setStep('code')} className="btn-ghost flex-1 py-4">
+                  ← Back
+                </button>
+              )}
+              <button
+                onClick={handleJoin}
+                disabled={loading}
+                className={`btn-gold py-4 ${initialCode ? 'w-full' : 'flex-1'}`}
+              >
                 {loading ? 'Joining…' : '🎬 Join Game'}
               </button>
             </div>

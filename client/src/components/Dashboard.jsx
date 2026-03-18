@@ -1,4 +1,5 @@
 import React from 'react';
+import Footer from './Footer';
 
 /* Decorative film reel SVG */
 function FilmReel({ size = 64, className = '' }) {
@@ -27,7 +28,7 @@ function FilmReel({ size = 64, className = '' }) {
 
 export default function Dashboard({ onCreateParty, onJoinParty }) {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center px-4 relative overflow-hidden animate-fade-in">
+    <div className="min-h-screen flex flex-col relative overflow-hidden animate-fade-in">
 
       {/* Background decorations */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
@@ -38,65 +39,70 @@ export default function Dashboard({ onCreateParty, onJoinParty }) {
       </div>
 
       {/* Film strip top */}
-      <div className="film-strip w-full absolute top-0" />
+      <div className="film-strip w-full" />
 
-      {/* Main card */}
-      <div className="relative z-10 text-center max-w-xl w-full">
+      {/* Main content — grows to fill space */}
+      <div className="flex-1 flex items-center justify-center px-4 py-12">
+        <div className="relative z-10 text-center max-w-xl w-full">
 
-        {/* Logo cluster */}
-        <div className="flex justify-center mb-6 gap-6 items-center">
-          <FilmReel size={48} className="opacity-60" />
-          <div className="text-gold-500 text-5xl">🎬</div>
-          <FilmReel size={48} className="opacity-60 scale-x-[-1]" />
-        </div>
+          {/* Logo cluster */}
+          <div className="flex justify-center mb-6 gap-6 items-center">
+            <FilmReel size={48} className="opacity-60" />
+            <div className="text-gold-500 text-5xl">🎬</div>
+            <FilmReel size={48} className="opacity-60 scale-x-[-1]" />
+          </div>
 
-        <div className="mb-2">
-          <span className="font-display text-xs tracking-[0.4em] uppercase text-gold-700">
-            Welcome to
-          </span>
-        </div>
+          <div className="mb-2">
+            <span className="font-display text-xs tracking-[0.4em] uppercase text-gold-700">
+              Welcome to
+            </span>
+          </div>
 
-        <h1 className="font-display font-black text-5xl md:text-7xl leading-none mb-3">
-          <span className="gold-text">Bollywood</span>
-          <br />
-          <span className="text-crimson-400 italic text-4xl md:text-5xl">Hangman</span>
-        </h1>
+          <h1 className="font-display font-black text-5xl md:text-7xl leading-none mb-3">
+            <span className="gold-text">Bollywood</span>
+            <br />
+            <span className="text-crimson-400 italic text-4xl md:text-5xl">Hangman</span>
+          </h1>
 
-        <p className="text-gold-700 font-body text-sm tracking-widest uppercase mb-10">
-          ✦ &nbsp; Guess the movie · Outwit your friends &nbsp; ✦
-        </p>
+          <p className="text-gold-700 font-body text-sm tracking-widest uppercase mb-10">
+            ✦ &nbsp; Guess the movie · Outwit your friends &nbsp; ✦
+          </p>
 
-        {/* CTA buttons */}
-        <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <button
-            onClick={onCreateParty}
-            className="btn-gold text-base px-10 py-4 font-semibold"
-          >
-            🎬 &nbsp; Create a Party
-          </button>
-          <button
-            onClick={onJoinParty}
-            className="btn-ghost text-base px-10 py-4"
-          >
-            🎟 &nbsp; Join a Party
-          </button>
-        </div>
+          {/* CTA buttons */}
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={onCreateParty}
+              className="btn-gold text-base px-10 py-4 font-semibold"
+            >
+              🎬 &nbsp; Create a Party
+            </button>
+            <button
+              onClick={onJoinParty}
+              className="btn-ghost text-base px-10 py-4"
+            >
+              🎟 &nbsp; Join a Party
+            </button>
+          </div>
 
-        {/* Rules snippet */}
-        <div className="mt-14 card-dark corner-deco rounded-xl px-8 py-6 text-left space-y-2">
-          <p className="font-display text-gold-500 text-sm tracking-widest uppercase mb-4">How to Play</p>
-          <ul className="text-gold-700 text-sm space-y-2 font-body">
-            <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Host picks a Bollywood movie and gives a hint letter.</li>
-            <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Guests guess one letter at a time.</li>
-            <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Each wrong guess strikes a letter from <span className="font-mono text-crimson-400 font-bold">BOLLYWOOD</span>.</li>
-            <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Game over if all 9 lives are lost.</li>
-            <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Up to 5 players · No login needed.</li>
-          </ul>
+          {/* Rules snippet */}
+          <div className="mt-14 card-dark corner-deco rounded-xl px-8 py-6 text-left space-y-2">
+            <p className="font-display text-gold-500 text-sm tracking-widest uppercase mb-4">How to Play</p>
+            <ul className="text-gold-700 text-sm space-y-2 font-body">
+              <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Host picks a Bollywood movie and gives hint letters.</li>
+              <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Each player guesses independently — one letter at a time.</li>
+              <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Each wrong guess strikes a letter from <span className="font-mono text-crimson-400 font-bold">BOLLYWOOD</span>.</li>
+              <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Game over if all 9 lives are lost.</li>
+              <li className="flex gap-2"><span className="text-crimson-400 mt-0.5">→</span> Up to 5 players · No login needed.</li>
+            </ul>
+          </div>
         </div>
       </div>
 
       {/* Film strip bottom */}
-      <div className="film-strip w-full absolute bottom-0" />
+      <div className="film-strip w-full" />
+
+      {/* Footer */}
+      <Footer />
     </div>
   );
 }
