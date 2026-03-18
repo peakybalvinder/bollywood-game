@@ -238,94 +238,181 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
               {/* ── Host spectator view ── */}
               {isHost && gameConfig && (
                 <div className="w-full animate-fade-in space-y-4">
-                  <div className="card-dark rounded-xl py-5 px-6 flex items-center gap-4">
-                    <span className="text-4xl">🎬</span>
-                    <div className="flex-1">
-                      <p className="font-display font-bold text-xl text-gold-400">Spectating</p>
-                      <p className="text-gold-700 text-sm font-body">
-                        {nonHostPlayers.length === 0
-                          ? 'No players yet — share the room code!'
-                          : `Watching ${nonHostPlayers.length} player${nonHostPlayers.length > 1 ? 's' : ''}`}
-                      </p>
-                    </div>
-                    {gameConfig.hint && (
-                      <div className="text-right">
-                        <p className="text-gold-700 text-xs mb-1">Hint given</p>
-                        <div className="flex gap-1 flex-wrap justify-end">
-                          {gameConfig.hint.toUpperCase().split('').map((l, i) => (
-                            <span key={i} className="font-mono font-bold text-gold-400 bg-ink-800 border border-gold-800 rounded px-2 py-0.5 text-sm">
-                              {l}
-                            </span>
-                          ))}
+
+                  {/* Movie + hint header */}
+                  <div className="card-dark rounded-xl py-5 px-6">
+                    <div className="flex items-start justify-between gap-4 mb-4">
+                      <div>
+                        <p className="text-gold-700 text-xs uppercase tracking-widest mb-1">🎬 Spectating</p>
+                        <p className="font-display font-bold text-2xl text-gold-300">
+                          {gameConfig.movieName || '—'}
+                        </p>
+                        <p className="text-gold-700 text-sm font-body mt-1">
+                          {nonHostPlayers.length === 0
+                            ? 'No players yet'
+                            : `${nonHostPlayers.filter(p => p.gameStatus === 'playing' || p.gameStatus === 'waiting').length} still playing · ${nonHostPlayers.filter(p => p.gameStatus === 'won').length} guessed · ${nonHostPlayers.filter(p => p.gameStatus === 'lost').length} out`}
+                        </p>
+                      </div>
+                      {gameConfig.hint && (
+                        <div className="text-right shrink-0">
+                          <p className="text-gold-700 text-xs mb-1">Hints given</p>
+                          <div className="flex gap-1 flex-wrap justify-end">
+                            {gameConfig.hint.toUpperCase().split('').map((l, i) => (
+                              <span key={i} className="font-mono font-bold text-gold-400 bg-ink-800 border border-gold-800 rounded px-2 py-0.5 text-sm">{l}</span>
+                            ))}
+                          </div>
                         </div>
+                      )}
+                    </div>
+
+                    {/* Answer blanks — host sees the full word */}
+                    {gameConfig.movieName && (
+                      <div className="bg-ink-900 rounded-lg px-4 py-3 flex flex-wrap gap-1 justify-center">
+                        {gameConfig.movieName.split('').map((ch, i) => (
+                          ch === ' '
+                            ? <span key={i} className="w-4" />
+                            : <span key={i} className="font-display font-bold text-gold-400 text-lg w-8 text-center border-b-2 border-gold-600">{ch}</span>
+                        ))}
                       </div>
                     )}
                   </div>
 
                   {/* Live player cards */}
-                  <div className="card-dark rounded-xl p-4">
-                    <p className="text-gold-700 text-xs uppercase tracking-widest mb-3">Live Progress</p>
-                    {nonHostPlayers.length === 0 ? (
-                      <p className="text-gold-800 text-sm text-center py-4 font-body italic">
-                        Waiting for players to join…
-                      </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {nonHostPlayers.map((p) => {
-                          const lives  = p.livesLeft !== null ? p.livesLeft : 9;
-                          const pct    = (lives / 9) * 100;
-                          const status = p.gameStatus || 'waiting';
-                          return (
-                            <div key={p.id} className={`rounded-lg p-4 border transition-all duration-300 ${
-                              status === 'won'  ? 'bg-green-950 border-green-700' :
-                              status === 'lost' ? 'bg-crimson-950 border-crimson-800' :
-                              'bg-ink-700 border-ink-600'
-                            }`}>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-lg">
-                                    {status === 'won' ? '🏆' : status === 'lost' ? '💔' : status === 'playing' ? '🎯' : '⏳'}
-                                  </span>
-                                  <span className="font-body font-semibold text-sm text-gold-300">{p.name}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {status === 'won'     && <span className="text-green-400 text-xs font-semibold">Guessed!</span>}
-                                  {status === 'lost'    && <span className="text-crimson-400 text-xs font-semibold">Out of lives</span>}
-                                  {status === 'playing' && <span className="text-gold-700 text-xs">{lives}/9 lives</span>}
-                                  <span className="font-mono font-bold text-gold-500 text-sm">{p.score} pts</span>
+                  {nonHostPlayers.length === 0 ? (
+                    <div className="card-dark rounded-xl p-6 text-center">
+                      <p className="text-gold-800 text-sm font-body italic">Waiting for players to join…</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {nonHostPlayers.map((p) => {
+                        const lives  = p.livesLeft !== null ? p.livesLeft : 9;
+                        const pct    = (lives / 9) * 100;
+                        const status = p.gameStatus || 'waiting';
+
+                        return (
+                          <div key={p.id} className={`card-dark rounded-xl p-4 border transition-all duration-300 ${
+                            status === 'won'  ? 'border-green-600'   :
+                            status === 'lost' ? 'border-crimson-700' :
+                            p.lastLetter      ? 'border-gold-700'    : 'border-ink-600'
+                          }`}>
+                            {/* Row 1: name + status + score */}
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xl">
+                                  {status === 'won' ? '🏆' : status === 'lost' ? '💔' : status === 'playing' ? '🎯' : '⏳'}
+                                </span>
+                                <div>
+                                  <p className="font-body font-semibold text-sm text-gold-300">{p.name}</p>
+                                  <p className="text-gold-700 text-xs">
+                                    {status === 'won'     && '✓ Guessed the movie!'}
+                                    {status === 'lost'    && '✗ Ran out of lives'}
+                                    {status === 'playing' && `${lives} / 9 lives remaining`}
+                                    {status === 'waiting' && 'Game just started…'}
+                                  </p>
                                 </div>
                               </div>
-                              <div className="flex gap-0.5 mb-2">
+                              <div className="text-right">
+                                <p className="font-mono font-bold text-gold-400 text-lg">{p.score}</p>
+                                <p className="text-gold-800 text-xs">pts</p>
+                              </div>
+                            </div>
+
+                            {/* Row 2: player's current blanks (partial word) */}
+                            {p.blanks && (
+                              <div className="bg-ink-900 rounded-lg px-3 py-2 mb-3 flex flex-wrap gap-0.5 justify-center">
+                                {p.blanks.map((ch, i) => (
+                                  ch === ' '
+                                    ? <span key={i} className="w-3" />
+                                    : <span key={i} className={`font-display font-bold text-sm w-6 text-center border-b-2 transition-all duration-300
+                                        ${ch !== '_'
+                                          ? 'text-gold-400 border-gold-500'
+                                          : 'text-transparent border-gold-800'}`}>
+                                        {ch !== '_' ? ch : ''}
+                                      </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Row 3: last guessed letter + BOLLYWOOD lives */}
+                            <div className="flex items-center justify-between">
+                              {/* Last guess indicator */}
+                              <div className="flex items-center gap-2">
+                                {p.lastLetter ? (
+                                  <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 border ${
+                                    p.lastLetterCorrect
+                                      ? 'bg-green-950 border-green-700'
+                                      : 'bg-crimson-950 border-crimson-800'
+                                  }`}>
+                                    <span className="font-mono font-bold text-lg text-gold-200">
+                                      {p.lastLetter}
+                                    </span>
+                                    <span className={`text-sm font-bold ${p.lastLetterCorrect ? 'text-green-400' : 'text-crimson-400'}`}>
+                                      {p.lastLetterCorrect ? '✓' : '✗'}
+                                    </span>
+                                    <span className={`text-xs ${p.lastLetterCorrect ? 'text-green-500' : 'text-crimson-500'}`}>
+                                      {p.lastLetterCorrect ? 'correct' : 'wrong'}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="text-gold-800 text-xs italic">No guesses yet</span>
+                                )}
+
+                                {/* Wrong letters */}
+                                {p.wrongLetters && p.wrongLetters.length > 0 && (
+                                  <div className="flex gap-1 flex-wrap">
+                                    {p.wrongLetters.map((l, i) => (
+                                      <span key={i} className="font-mono text-xs text-crimson-600 line-through">{l}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* BOLLYWOOD lives */}
+                              <div className="flex gap-0.5">
                                 {'BOLLYWOOD'.split('').map((ch, i) => (
-                                  <span key={i} className={`font-mono text-xs font-bold transition-all duration-300 ${
-                                    i < lives ? 'text-crimson-400' : 'text-ink-500 line-through'
+                                  <span key={i} className={`font-mono text-[10px] font-bold transition-all duration-300 ${
+                                    i < lives ? 'text-crimson-400' : 'text-ink-600 line-through'
                                   }`}>{ch}</span>
                                 ))}
                               </div>
-                              <div className="w-full bg-ink-800 rounded-full h-1.5">
-                                <div className={`h-1.5 rounded-full transition-all duration-500 ${
-                                  status === 'won' ? 'bg-green-500' : status === 'lost' ? 'bg-crimson-600' : 'bg-gold-600'
-                                }`} style={{ width: `${pct}%` }} />
-                              </div>
-                              {p.guessedCount > 0 && (
-                                <p className="text-gold-800 text-xs mt-1">{p.guessedCount} letter{p.guessedCount > 1 ? 's' : ''} guessed</p>
-                              )}
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
 
-                  {/* All done — pick next movie */}
+                            {/* Row 4: progress bar */}
+                            <div className="mt-3 w-full bg-ink-800 rounded-full h-1">
+                              <div className={`h-1 rounded-full transition-all duration-500 ${
+                                status === 'won' ? 'bg-green-500' : status === 'lost' ? 'bg-crimson-600' : 'bg-gold-600'
+                              }`} style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* All players done — host can start next round */}
                   {nonHostPlayers.length > 0 &&
                     nonHostPlayers.every(p => p.gameStatus === 'won' || p.gameStatus === 'lost') && (
-                    <button
-                      onClick={() => { setShowMovieSearch(true); setGameConfig(null); }}
-                      className="btn-gold w-full py-3"
-                    >
-                      🎬 Pick Next Movie
-                    </button>
+                    <div className="card-dark rounded-xl p-5 text-center space-y-3 border border-gold-800">
+                      <p className="font-display font-bold text-xl text-gold-400">Round over! 🎉</p>
+                      <div className="space-y-1">
+                        {[...nonHostPlayers].sort((a,b) => b.score - a.score).map((p, i) => (
+                          <div key={p.id} className="flex items-center justify-between px-3 py-1.5 bg-ink-700 rounded-lg">
+                            <span className="text-sm">{['🥇','🥈','🥉'][i] || '  '}</span>
+                            <span className="font-body text-gold-300 text-sm flex-1 text-left ml-2">{p.name}</span>
+                            <span className={`text-xs mr-3 ${p.gameStatus === 'won' ? 'text-green-400' : 'text-crimson-500'}`}>
+                              {p.gameStatus === 'won' ? 'Guessed!' : 'Did not guess'}
+                            </span>
+                            <span className="font-mono font-bold text-gold-500 text-sm">{p.score} pts</span>
+                          </div>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => { setShowMovieSearch(true); setGameConfig(null); }}
+                        className="btn-gold w-full py-3 mt-2"
+                      >
+                        🎬 Pick Next Movie
+                      </button>
+                    </div>
                   )}
                 </div>
               )}

@@ -73,7 +73,9 @@ function mkPlayerGame(movieName, hint) {
     wrongLetters: [],
     livesLeft: LIVES_WORD.length,
     status: 'playing',
-    _movieName: movieName, // internal ref for guess logic — not sent to client
+    lastLetter: null,        // most recent guess letter (uppercase)
+    lastLetterCorrect: null, // true/false/null
+    _movieName: movieName,
   };
 }
 
@@ -125,9 +127,13 @@ function publicPlayerRow(p) {
     isHost:           p.isHost,
     score:            p.score,
     guessedCorrectly: p.guessedCorrectly,
-    livesLeft:        p.playerGame ? p.playerGame.livesLeft : null,
-    gameStatus:       p.playerGame ? p.playerGame.status   : null,
-    guessedCount:     p.playerGame ? p.playerGame.guessedLetters.length : 0,
+    livesLeft:        p.playerGame ? p.playerGame.livesLeft              : null,
+    gameStatus:       p.playerGame ? p.playerGame.status                 : null,
+    guessedCount:     p.playerGame ? p.playerGame.guessedLetters.length  : 0,
+    blanks:           p.playerGame ? p.playerGame.blanks                 : null,
+    lastLetter:       p.playerGame ? p.playerGame.lastLetter             : null,
+    lastLetterCorrect: p.playerGame ? p.playerGame.lastLetterCorrect     : null,
+    wrongLetters:     p.playerGame ? p.playerGame.wrongLetters           : [],
   };
 }
 
@@ -327,7 +333,7 @@ io.on('connection', (socket) => {
         playerGame: p.isHost ? null : publicPlayerGame(p.playerGame, name),
         hint:       room.game.hint,
         // Send game config to host so it can switch to spectator view
-        gameConfig: { hint: room.game.hint },
+        gameConfig: { hint: room.game.hint, movieName: name },
       });
     });
 
@@ -349,6 +355,10 @@ io.on('connection', (socket) => {
 
     const result = processGuess(player.playerGame, letter);
     if (result.alreadyGuessed) return cb({ success: false, error: 'Already guessed.' });
+
+    // Track the last guess so the host spectator view can show it
+    player.playerGame.lastLetter        = letter.toUpperCase();
+    player.playerGame.lastLetterCorrect = result.correct === true;
 
     let gameOver = false;
     if (isWon(player.playerGame)) {
