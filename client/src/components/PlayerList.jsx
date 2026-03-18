@@ -1,7 +1,7 @@
 import React from 'react';
 import clsx from 'clsx';
 
-const MEDAL = ['🥇', '🥈', '🥉'];
+const MEDAL     = ['🥇', '🥈', '🥉'];
 const LIVES_WORD = 'BOLLYWOOD';
 
 export default function PlayerList({
@@ -12,6 +12,7 @@ export default function PlayerList({
   roomId,
   isHost,
   onTransferHost,
+  gameActive = false,
 }) {
   const sorted = [...players].sort((a, b) => b.score - a.score);
 
@@ -20,10 +21,10 @@ export default function PlayerList({
   }
 
   return (
-    <div className="flex flex-col h-full gap-4">
+    <div className="flex flex-col gap-4 h-full">
 
       {/* Room header */}
-      <div className="card-dark rounded-xl p-4">
+      <div className="card-dark rounded-xl p-4 shrink-0">
         <p className="text-gold-700 text-xs uppercase tracking-widest mb-1">Party</p>
         <h2 className="font-display font-bold text-lg text-gold-300 truncate">{roomName}</h2>
         <div className="flex items-center gap-2 mt-2">
@@ -36,26 +37,28 @@ export default function PlayerList({
         </div>
       </div>
 
-      {/* Players */}
-      <div className="card-dark rounded-xl p-4 flex-1 overflow-y-auto">
+      {/* Players list */}
+      <div className="card-dark rounded-xl p-4 flex-1 min-h-0 overflow-y-auto">
         <p className="text-gold-700 text-xs uppercase tracking-widest mb-4">
           Players <span className="text-gold-600 normal-case">{players.length} / 5 max</span>
         </p>
 
         <div className="space-y-2">
           {sorted.map((player, idx) => {
-            const isMe      = player.id === myId;
-            const isHostRow = player.id === hostId;
-            const livesLeft  = player.livesLeft ?? LIVES_WORD.length;
+            const isMe       = player.id === myId;
+            const isHostRow  = player.id === hostId;
+            const lives      = player.livesLeft !== null ? player.livesLeft : LIVES_WORD.length;
             const gameStatus = player.gameStatus;
-            const showLives  = isHost && !player.isHost && player.livesLeft !== null && gameStatus === 'playing';
+
+            // Show lives bar to ALL players (not just host) when game is active
+            const showLivesBar = gameActive && !player.isHost && player.livesLeft !== null;
 
             return (
               <div
                 key={player.id}
                 className={clsx(
                   'rounded-lg p-3 border transition-all duration-300',
-                  isMe           ? 'bg-gold-900 border-gold-700' : 'bg-ink-700 border-ink-600',
+                  isMe           ? 'bg-gold-900 border-gold-700'    : 'bg-ink-700 border-ink-600',
                   gameStatus === 'won'  && 'border-green-700',
                   gameStatus === 'lost' && 'border-crimson-800',
                 )}
@@ -88,15 +91,15 @@ export default function PlayerList({
                       {gameStatus === 'lost' && <span className="text-xs text-crimson-400">Out of lives</span>}
                     </div>
 
-                    {/* Host view: mini lives bar */}
-                    {showLives && (
+                    {/* BOLLYWOOD lives bar — visible to ALL players when game is active */}
+                    {showLivesBar && (
                       <div className="mt-1 flex gap-0.5">
                         {LIVES_WORD.split('').map((ch, i) => (
                           <span
                             key={i}
                             className={clsx(
-                              'font-mono text-[9px] font-bold',
-                              i < livesLeft ? 'text-crimson-400' : 'text-ink-500 line-through',
+                              'font-mono text-[9px] font-bold transition-all duration-300',
+                              i < lives ? 'text-crimson-400' : 'text-ink-500 line-through',
                             )}
                           >
                             {ch}
@@ -113,7 +116,7 @@ export default function PlayerList({
                   </div>
                 </div>
 
-                {/* Make Host button — only shown to current host, for non-host players */}
+                {/* Make Host button — only current host sees this */}
                 {isHost && !player.isHost && onTransferHost && (
                   <div className="mt-2 pt-2 border-t border-ink-600">
                     <button
@@ -134,9 +137,9 @@ export default function PlayerList({
         </div>
       </div>
 
-      <div className="text-center text-gold-800 text-xs font-body px-2">
+      <p className="text-center text-gold-800 text-xs font-body px-2 shrink-0">
         Score = lives left × 10 + 20 · Accumulates across rounds
-      </div>
+      </p>
     </div>
   );
 }

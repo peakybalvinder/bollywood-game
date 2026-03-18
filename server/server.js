@@ -26,7 +26,7 @@ const MAX_PLAYERS         = 5;
 const LIVES_WORD          = 'BOLLYWOOD';
 const INACTIVITY_MS       = 5 * 60 * 1000;
 const INACTIVITY_CHECK_MS = 30_000;
-const OMDB_API_KEY        = process.env.OMDB_API_KEY || '';
+const TMDB_API_KEY        = process.env.TMDB_API_KEY || '';
 
 // ─── In-memory store ─────────────────────────────────────────────────────────
 const rooms = new Map();
@@ -165,22 +165,52 @@ setInterval(() => {
   }
 }, INACTIVITY_CHECK_MS);
 
-// ─── OMDB proxy ──────────────────────────────────────────────────────────────
+// ─── Movie search proxy ──────────────────────────────────────────────────────
+// Uses TMDB if key is set, falls back to iTunes (no key needed) otherwise.
+// iTunes has decent coverage and needs zero configuration.
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 2) return res.json({ results: [] });
-  if (!OMDB_API_KEY) return res.json({ results: [], noKey: true });
 
+  // ── TMDB (preferred — best Bollywood coverage) ──────────────────────────
+  if (TMDB_API_KEY) {
+    try {
+      const url = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(q)}&include_adult=false&language=en-US&page=1`;
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${TMDB_API_KEY}`,
+          'accept': 'application/json',
+        },
+      });
+      const data = await response.json();
+      const results = (data.results || [])
+        .slice(0, 10)
+        .map((m) => ({
+          title: m.title,
+          year:  m.release_date ? m.release_date.slice(0, 4) : '',
+        }));
+      return res.json({ results, source: 'tmdb' });
+    } catch (err) {
+      console.error('[TMDB]', err.message);
+      // Fall through to iTunes backup
+    }
+  }
+
+  // ── iTunes Search (free fallback, no key needed) ────────────────────────
   try {
-    const url = `https://www.omdbapi.com/?s=${encodeURIComponent(q)}&type=movie&apikey=${OMDB_API_KEY}`;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=movie&limit=15&entity=movie`;
     const response = await fetch(url);
     const data = await response.json();
-    const results = data.Search
-      ? data.Search.map((m) => ({ title: m.Title, year: m.Year }))
-      : [];
-    return res.json({ results });
+    const results = (data.results || [])
+      .map((m) => ({
+        title: m.trackName || m.collectionName,
+        year:  m.releaseDate ? m.releaseDate.slice(0, 4) : '',
+      }))
+      .filter((m) => m.title)
+      .slice(0, 10);
+    return res.json({ results, source: 'itunes' });
   } catch (err) {
-    console.error('[OMDB]', err.message);
+    console.error('[iTunes]', err.message);
     return res.status(500).json({ results: [] });
   }
 });
@@ -405,5 +435,5 @@ app.get('/health', (_, res) => res.json({ status: 'ok', rooms: rooms.size }));
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🎬 Bollywood Game Server on http://localhost:${PORT}`);
-  console.log(OMDB_API_KEY ? '🔍 OMDB search enabled' : '⚠️  OMDB_API_KEY not set — free-text only');
+  console.log(TMDB_API_KEY ? '🔍 TMDB search enabled' : '⚠️  TMDB_API_KEY not set — using iTunes fallback (free, no key needed)');
 });
