@@ -166,46 +166,82 @@ setInterval(() => {
 }, INACTIVITY_CHECK_MS);
 
 // ─── Movie search proxy ──────────────────────────────────────────────────────
-// Uses TMDB if key is set, falls back to iTunes (no key needed) otherwise.
-// iTunes has decent coverage and needs zero configuration.
+// TMDB supports two key formats:
+//   Short key  (~32 chars) → use as ?api_key= query param
+//   Long token (~200 chars, starts with eyJ) → use as Bearer token
+// Falls back to iTunes (free, no key needed) if TMDB is not configured.
+
+function isBearerToken(key) {
+  return key && key.length > 50; // Bearer tokens are ~200 chars
+}
+
+async function searchTMDB(q) {
+  const key = TMDB_API_KEY;
+  let url, headers = { accept: 'application/json' };
+
+  if (isBearerToken(key)) {
+    // Long token → Bearer auth
+    url = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(q)}&include_adult=false&language=en-US&page=1`;
+    headers['Authorization'] = `Bearer ${key}`;
+  } else {
+    // Short API key → query param auth
+    url = `https://api.themoviedb.org/3/search/movie?api_key=${key}&query=${encodeURIComponent(q)}&include_adult=false&language=en-US&page=1`;
+  }
+
+  const response = await fetch(url, { headers });
+  const data = await response.json();
+
+  if (data.status_message) {
+    // TMDB returned an error (e.g. invalid key)
+    console.error('[TMDB] API error:', data.status_message);
+    return null;
+  }
+
+  return (data.results || [])
+    .slice(0, 10)
+    .map((m) => ({ title: m.title, year: m.release_date ? m.release_date.slice(0, 4) : '' }));
+}
+
+// Debug endpoint — visit /api/search-status to verify your TMDB key is working
+app.get('/api/search-status', async (req, res) => {
+  if (!TMDB_API_KEY) {
+    return res.json({ configured: false, source: 'itunes-fallback', message: 'No TMDB_API_KEY set. Using iTunes fallback.' });
+  }
+  try {
+    const results = await searchTMDB('Sholay');
+    if (results === null) {
+      return res.json({ configured: true, working: false, message: 'TMDB key is set but returned an error. Check the key value in Railway.' });
+    }
+    return res.json({ configured: true, working: true, source: 'tmdb', testResults: results.slice(0, 3), message: 'TMDB is working correctly.' });
+  } catch (err) {
+    return res.json({ configured: true, working: false, error: err.message });
+  }
+});
+
 app.get('/api/search', async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q || q.length < 2) return res.json({ results: [] });
 
-  // ── TMDB (preferred — best Bollywood coverage) ──────────────────────────
+  // ── TMDB ──────────────────────────────────────────────────────────────────
   if (TMDB_API_KEY) {
     try {
-      const url = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(q)}&include_adult=false&language=en-US&page=1`;
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${TMDB_API_KEY}`,
-          'accept': 'application/json',
-        },
-      });
-      const data = await response.json();
-      const results = (data.results || [])
-        .slice(0, 10)
-        .map((m) => ({
-          title: m.title,
-          year:  m.release_date ? m.release_date.slice(0, 4) : '',
-        }));
-      return res.json({ results, source: 'tmdb' });
+      const results = await searchTMDB(q);
+      if (results !== null && results.length > 0) {
+        return res.json({ results, source: 'tmdb' });
+      }
+      // Key set but no results — fall through to iTunes
     } catch (err) {
       console.error('[TMDB]', err.message);
-      // Fall through to iTunes backup
     }
   }
 
-  // ── iTunes Search (free fallback, no key needed) ────────────────────────
+  // ── iTunes fallback (free, zero config) ───────────────────────────────────
   try {
     const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&media=movie&limit=15&entity=movie`;
     const response = await fetch(url);
     const data = await response.json();
     const results = (data.results || [])
-      .map((m) => ({
-        title: m.trackName || m.collectionName,
-        year:  m.releaseDate ? m.releaseDate.slice(0, 4) : '',
-      }))
+      .map((m) => ({ title: m.trackName || m.collectionName, year: m.releaseDate ? m.releaseDate.slice(0, 4) : '' }))
       .filter((m) => m.title)
       .slice(0, 10);
     return res.json({ results, source: 'itunes' });
