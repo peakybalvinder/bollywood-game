@@ -1,6 +1,10 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { SOCKET_URL } from '../socket';
 
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+// Use the same resolved server URL as the socket connection.
+// This avoids the VITE_SERVER_URL bake-time issue — if the socket connects,
+// search will always hit the correct server too.
+const SERVER_URL = SOCKET_URL;
 
 export default function MovieSearchModal({ onSelectMovie, onClose }) {
   const [query, setQuery]         = useState('');
