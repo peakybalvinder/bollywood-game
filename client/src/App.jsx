@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import socket from './socket';
+import socket, { SOCKET_URL } from './socket';
 import Dashboard from './components/Dashboard';
 import CreatePartyModal from './components/CreatePartyModal';
 import JoinPartyModal from './components/JoinPartyModal';
@@ -7,23 +7,23 @@ import GamePage from './pages/GamePage';
 import Toast from './components/Toast';
 
 export default function App() {
-  const [view, setView]             = useState('dashboard');
-  const [showCreate, setShowCreate] = useState(false);
-  const [showJoin, setShowJoin]     = useState(false);
+  const [view, setView]               = useState('dashboard');
+  const [showCreate, setShowCreate]   = useState(false);
+  const [showJoin, setShowJoin]       = useState(false);
   const [autoJoinCode, setAutoJoinCode] = useState(null);
-  const [roomData, setRoomData]     = useState(null);
-  const [toast, setToast]           = useState(null);
-  const [connected, setConnected]   = useState(false);
-  const [connecting, setConnecting] = useState(true);
+  const [roomData, setRoomData]       = useState(null);
+  const [toast, setToast]             = useState(null);
+  const [connected, setConnected]     = useState(false);
+  const [connError, setConnError]     = useState(false);
+  const [connAttempts, setConnAttempts] = useState(0);
 
-  // ── Toast ─────────────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
     setToast({ message, type });
     const t = setTimeout(() => setToast(null), duration);
     return () => clearTimeout(t);
   }, []);
 
-  // ── Auto-join from URL ?room=XXXXXX ───────────────────────────────────
+  // Auto-join from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get('room');
@@ -34,38 +34,34 @@ export default function App() {
     }
   }, []);
 
-  // ── Socket lifecycle ──────────────────────────────────────────────────
+  // Socket lifecycle
   useEffect(() => {
     socket.connect();
 
     socket.on('connect', () => {
+      console.log('[FilmiPaheli] ✅ Connected! ID:', socket.id, '| URL:', SOCKET_URL);
       setConnected(true);
-      setConnecting(false);
+      setConnError(false);
+      setConnAttempts(0);
     });
 
-    socket.on('disconnect', () => {
+    socket.on('disconnect', (reason) => {
+      console.log('[FilmiPaheli] Disconnected:', reason);
       setConnected(false);
     });
 
-    socket.on('connect_error', () => {
-      setConnecting(false);
+    socket.on('connect_error', (err) => {
+      console.error('[FilmiPaheli] ❌ Connection error:', err.message, '| URL:', SOCKET_URL);
+      setConnError(true);
       setConnected(false);
+      setConnAttempts(n => n + 1);
     });
 
-    // Reconnecting — show subtle status
-    socket.on('reconnecting', () => {
-      setConnecting(true);
-    });
-
-    socket.on('reconnect', () => {
+    socket.on('reconnect', (attempt) => {
+      console.log('[FilmiPaheli] ✅ Reconnected after', attempt, 'attempts');
       setConnected(true);
-      setConnecting(false);
+      setConnError(false);
       showToast('Reconnected!', 'success', 2000);
-    });
-
-    socket.on('reconnect_failed', () => {
-      setConnecting(false);
-      showToast('Connection failed. Please refresh the page.', 'error', 0);
     });
 
     socket.on('host_left', ({ message }) => {
@@ -75,7 +71,7 @@ export default function App() {
     });
 
     socket.on('inactivity_kick', ({ message }) => {
-      showToast(message || 'You were removed due to inactivity.', 'error', 5000);
+      showToast(message || 'Removed due to inactivity.', 'error', 5000);
       setView('dashboard');
       setRoomData(null);
     });
@@ -84,23 +80,19 @@ export default function App() {
       socket.off('connect');
       socket.off('disconnect');
       socket.off('connect_error');
-      socket.off('reconnecting');
       socket.off('reconnect');
-      socket.off('reconnect_failed');
       socket.off('host_left');
       socket.off('inactivity_kick');
       socket.disconnect();
     };
   }, [showToast]);
 
-  // ── Activity ping ─────────────────────────────────────────────────────
   useEffect(() => {
     if (view !== 'game') return;
     const id = setInterval(() => socket.emit('activity_ping'), 60_000);
     return () => clearInterval(id);
   }, [view]);
 
-  // ── Handlers ─────────────────────────────────────────────────────────
   function handleRoomReady(data) {
     setRoomData(data);
     setView('game');
@@ -121,18 +113,63 @@ export default function App() {
     setAutoJoinCode(null);
   }
 
+  // ── Connection error screen ──────────────────────────────────────────────
+  if (connError && !connected && connAttempts >= 3) {
+    return (
+      <div className="bg-cinema min-h-screen flex items-center justify-center px-4">
+        {toast && <Toast type={toast.type} message={toast.message} />}
+        <div className="card-dark rounded-2xl p-8 w-full max-w-md text-center">
+          <div className="text-5xl mb-4">🔌</div>
+          <h2 className="font-display font-bold text-2xl text-crimson-400 mb-3">
+            Cannot reach server
+          </h2>
+          <p className="text-gold-700 text-sm font-body mb-5">
+            FilmiPaheli cannot connect to the game server.
+          </p>
+
+          <div className="bg-ink-900 rounded-lg px-4 py-3 mb-4 text-left">
+            <p className="text-gold-700 text-xs uppercase tracking-widest mb-1">Server URL being used</p>
+            <p className="font-mono text-gold-400 text-xs break-all">{SOCKET_URL}</p>
+          </div>
+
+          <div className="bg-ink-900 rounded-lg px-4 py-3 mb-6 text-left text-xs text-gold-700 font-body space-y-1">
+            <p className="font-semibold text-gold-500 mb-2">Common causes:</p>
+            <p>1. Server is sleeping (Railway free tier) — wait 30s and retry</p>
+            <p>2. <span className="font-mono text-gold-400">VITE_SERVER_URL</span> in Railway client variables is pointing to the wrong/disabled server URL</p>
+            <p>3. Client was not redeployed after changing <span className="font-mono text-gold-400">VITE_SERVER_URL</span></p>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => {
+                setConnError(false);
+                setConnAttempts(0);
+                socket.connect();
+              }}
+              className="btn-gold flex-1 py-3"
+            >
+              🔄 Retry
+            </button>
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-ghost flex-1 py-3"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-cinema min-h-screen">
       {toast && <Toast type={toast.type} message={toast.message} />}
 
-      {/* Connection status bar — shows only when reconnecting */}
-      {!connected && !connecting && view !== 'dashboard' && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-crimson-800 border-b border-crimson-600 text-red-200 text-xs text-center py-1.5 font-body">
-          ⚠️ Disconnected — trying to reconnect…
-        </div>
-      )}
-      {connecting && !connected && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-ink-700 border-b border-gold-800 text-gold-400 text-xs text-center py-1.5 font-body">
+      {/* Thin connecting banner — disappears once connected */}
+      {!connected && !connError && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-ink-700 border-b border-gold-800 text-gold-400 text-xs text-center py-1.5 font-body flex items-center justify-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-pulse inline-block" />
           Connecting to server…
         </div>
       )}

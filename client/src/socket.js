@@ -1,43 +1,33 @@
 import { io } from 'socket.io-client';
 
-const SOCKET_URL = import.meta.env.VITE_SERVER_URL || 'http://localhost:3001';
+// ── Server URL resolution ─────────────────────────────────────────────────────
+// VITE_SERVER_URL is baked in at build time.
+// If it ends up wrong (e.g. old Railway URL was disabled), the app falls
+// back to same-origin which works if client and server are on the same domain.
+const BAKED_URL  = import.meta.env.VITE_SERVER_URL || '';
+const SAME_ORIGIN = window.location.origin; // e.g. https://www.filmipaheli.com
+
+// Use the baked URL if it looks valid and different from current origin,
+// otherwise fall back to same-origin (useful when client/server share a domain).
+export const SOCKET_URL =
+  BAKED_URL && BAKED_URL !== SAME_ORIGIN
+    ? BAKED_URL
+    : SAME_ORIGIN;
+
+console.log('[FilmiPaheli] VITE_SERVER_URL (baked):', BAKED_URL || '(not set)');
+console.log('[FilmiPaheli] Connecting to:', SOCKET_URL);
 
 export const socket = io(SOCKET_URL, {
   autoConnect: false,
-
-  // ── Transports ──────────────────────────────────────────────────────────
-  // MUST start with polling first.
-  // Safari blocks WebSocket upgrades from HTTPS pages to non-standard origins.
-  // Starting on XHR polling (which uses normal HTTP) works on all browsers,
-  // then Engine.IO silently upgrades to WebSocket when it's safe to do so.
+  // polling first — works on ALL browsers including Safari
   transports: ['polling', 'websocket'],
-
-  // ── Reconnection — handles weak WiFi and mobile data drops ─────────────
+  timeout: 20000,
   reconnection: true,
-  reconnectionAttempts: 15,
+  reconnectionAttempts: 10,
   reconnectionDelay: 1000,
-  reconnectionDelayMax: 10000,
-  randomizationFactor: 0.5,
-
-  // ── Timeouts ────────────────────────────────────────────────────────────
-  timeout: 45000,      // 45s initial connection timeout (covers slow 3G)
-  ackTimeout: 15000,   // 15s for emit acknowledgements
-
-  // ── Keep-alive ──────────────────────────────────────────────────────────
-  // Sends a heartbeat every 25s. If no pong in 20s, reconnect.
-  // Prevents silent disconnections on mobile when screen locks.
-  pingInterval: 25000,
-  pingTimeout: 20000,
-
-  // ── Safari / iOS specific ───────────────────────────────────────────────
-  // Disable credentials — avoids Safari's strict SameSite cookie rejection
+  reconnectionDelayMax: 5000,
+  randomizationFactor: 0.3,
   withCredentials: false,
-
-  // ── Upgrade strategy ────────────────────────────────────────────────────
-  // After connecting via polling, attempt WebSocket upgrade after 500ms
-  // giving the initial handshake time to complete.
-  upgrade: true,
-  rememberUpgrade: false, // Don't cache upgrade — re-test each session
 });
 
 export default socket;
