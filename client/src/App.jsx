@@ -6,6 +6,10 @@ import JoinPartyModal from './components/JoinPartyModal';
 import GamePage from './pages/GamePage';
 import Toast from './components/Toast';
 import useSingleSession from './hooks/useSingleSession';
+import FAQ                from './pages/FAQ';
+import TermsAndConditions from './pages/TermsAndConditions';
+import PrivacyPolicy      from './pages/PrivacyPolicy';
+import Disclaimer         from './pages/Disclaimer';
 
 export default function App() {
   const [view, setView]               = useState('dashboard');
@@ -17,6 +21,34 @@ export default function App() {
   const [connected, setConnected]     = useState(false);
   const [connError, setConnError]     = useState(false);
   const [connAttempts, setConnAttempts] = useState(0);
+
+  // ── Hash-based routing for legal pages ───────────────────────────────────
+  const [legalPage, setLegalPage] = useState(() => {
+    const h = window.location.hash;
+    if (h === '#faq')        return 'faq';
+    if (h === '#terms')      return 'terms';
+    if (h === '#privacy')    return 'privacy';
+    if (h === '#disclaimer') return 'disclaimer';
+    return null;
+  });
+
+  useEffect(() => {
+    function onHashChange() {
+      const h = window.location.hash;
+      if (h === '#faq')        setLegalPage('faq');
+      else if (h === '#terms')      setLegalPage('terms');
+      else if (h === '#privacy')    setLegalPage('privacy');
+      else if (h === '#disclaimer') setLegalPage('disclaimer');
+      else setLegalPage(null);
+    }
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
+
+  function goBack() {
+    window.location.hash = '';
+    setLegalPage(null);
+  }
 
   // Single session guard — if user opens another tab, warn them
   useSingleSession(useCallback(() => {
@@ -167,6 +199,12 @@ export default function App() {
       </div>
     );
   }
+
+  // ── Render legal pages ────────────────────────────────────────────────────
+  if (legalPage === 'faq')        return <FAQ onBack={goBack} />;
+  if (legalPage === 'terms')      return <TermsAndConditions onBack={goBack} />;
+  if (legalPage === 'privacy')    return <PrivacyPolicy onBack={goBack} />;
+  if (legalPage === 'disclaimer') return <Disclaimer onBack={goBack} />;
 
   return (
     <div className="bg-cinema min-h-screen">
