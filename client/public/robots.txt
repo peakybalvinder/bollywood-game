@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# Block game room URLs from being indexed (they're ephemeral)
+Disallow: /?room=
+
+Sitemap: https://www.filmipaheli.com/sitemap.xml

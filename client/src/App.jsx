@@ -7,14 +7,16 @@ import GamePage from './pages/GamePage';
 import Toast from './components/Toast';
 
 export default function App() {
-  const [view, setView] = useState('dashboard');
+  const [view, setView]             = useState('dashboard');
   const [showCreate, setShowCreate] = useState(false);
-  const [showJoin, setShowJoin] = useState(false);
-  const [autoJoinCode, setAutoJoinCode] = useState(null); // room code from URL
-  const [roomData, setRoomData] = useState(null);
-  const [toast, setToast] = useState(null);
+  const [showJoin, setShowJoin]     = useState(false);
+  const [autoJoinCode, setAutoJoinCode] = useState(null);
+  const [roomData, setRoomData]     = useState(null);
+  const [toast, setToast]           = useState(null);
+  const [connected, setConnected]   = useState(false);
+  const [connecting, setConnecting] = useState(true);
 
-  // ── Toast helper ──────────────────────────────────────────────────────
+  // ── Toast ─────────────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
     setToast({ message, type });
     const t = setTimeout(() => setToast(null), duration);
@@ -28,7 +30,6 @@ export default function App() {
     if (code && code.length === 6) {
       setAutoJoinCode(code.toUpperCase());
       setShowJoin(true);
-      // Clean the URL so it doesn't re-trigger on refresh confusion
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -37,8 +38,35 @@ export default function App() {
   useEffect(() => {
     socket.connect();
 
-    socket.on('connect', () => console.log('[socket] connected:', socket.id));
-    socket.on('disconnect', (reason) => console.log('[socket] disconnected:', reason));
+    socket.on('connect', () => {
+      setConnected(true);
+      setConnecting(false);
+    });
+
+    socket.on('disconnect', () => {
+      setConnected(false);
+    });
+
+    socket.on('connect_error', () => {
+      setConnecting(false);
+      setConnected(false);
+    });
+
+    // Reconnecting — show subtle status
+    socket.on('reconnecting', () => {
+      setConnecting(true);
+    });
+
+    socket.on('reconnect', () => {
+      setConnected(true);
+      setConnecting(false);
+      showToast('Reconnected!', 'success', 2000);
+    });
+
+    socket.on('reconnect_failed', () => {
+      setConnecting(false);
+      showToast('Connection failed. Please refresh the page.', 'error', 0);
+    });
 
     socket.on('host_left', ({ message }) => {
       showToast(message, 'error', 5000);
@@ -55,13 +83,17 @@ export default function App() {
     return () => {
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('connect_error');
+      socket.off('reconnecting');
+      socket.off('reconnect');
+      socket.off('reconnect_failed');
       socket.off('host_left');
       socket.off('inactivity_kick');
       socket.disconnect();
     };
   }, [showToast]);
 
-  // ── Activity ping every 60s ───────────────────────────────────────────
+  // ── Activity ping ─────────────────────────────────────────────────────
   useEffect(() => {
     if (view !== 'game') return;
     const id = setInterval(() => socket.emit('activity_ping'), 60_000);
@@ -93,6 +125,18 @@ export default function App() {
     <div className="bg-cinema min-h-screen">
       {toast && <Toast type={toast.type} message={toast.message} />}
 
+      {/* Connection status bar — shows only when reconnecting */}
+      {!connected && !connecting && view !== 'dashboard' && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-crimson-800 border-b border-crimson-600 text-red-200 text-xs text-center py-1.5 font-body">
+          ⚠️ Disconnected — trying to reconnect…
+        </div>
+      )}
+      {connecting && !connected && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-ink-700 border-b border-gold-800 text-gold-400 text-xs text-center py-1.5 font-body">
+          Connecting to server…
+        </div>
+      )}
+
       {view === 'dashboard' && (
         <>
           <Dashboard
@@ -104,6 +148,7 @@ export default function App() {
               onClose={() => setShowCreate(false)}
               onRoomReady={handleRoomReady}
               showToast={showToast}
+              isConnected={connected}
             />
           )}
           {showJoin && (
@@ -112,6 +157,7 @@ export default function App() {
               onRoomReady={handleRoomReady}
               showToast={showToast}
               initialCode={autoJoinCode}
+              isConnected={connected}
             />
           )}
         </>

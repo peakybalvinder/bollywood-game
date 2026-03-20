@@ -66,7 +66,17 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
   }
 
   const hintError = getHintError();
-  const canStart  = movieTitle.length > 0 && !hintError;
+
+  // Bug fix: if hints reveal every single letter in the movie title,
+  // the game would start with the full answer visible — block this.
+  const allLettersRevealed = movieTitle.length > 0 && (() => {
+    const uniqueLetters = [...new Set(
+      movieTitle.toLowerCase().replace(/[^a-z]/g, '').split('')
+    )];
+    return uniqueLetters.length > 0 && uniqueLetters.every(l => hintLetters.includes(l));
+  })();
+
+  const canStart = movieTitle.length > 0 && !hintError && !allLettersRevealed;
 
   const blanksPreview = movieTitle
     ? movieTitle.split('').map((ch, i) => {
@@ -181,7 +191,7 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
               Type letters to pre-reveal them. e.g. <span className="font-mono text-gold-600">AK</span> reveals all A's and K's.
             </p>
             <input
-              className={`input-dark uppercase font-mono text-xl tracking-widest ${hintError ? 'border-red-600' : ''}`}
+              className={`input-dark uppercase font-mono text-xl tracking-widest ${(hintError || allLettersRevealed) ? 'border-red-600' : ''}`}
               placeholder="optional…"
               value={hints}
               onChange={(e) => setHints(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
@@ -198,6 +208,11 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
               </div>
             )}
             {hintError && <p className="text-red-400 text-xs mt-1">{hintError}</p>}
+          {allLettersRevealed && !hintError && (
+            <p className="text-red-400 text-xs mt-1">
+              ⚠️ All letters revealed — remove some hints so players have something to guess!
+            </p>
+          )}
           </div>
 
           {/* Start button */}

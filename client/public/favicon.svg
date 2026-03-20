@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Dark background circle -->
+  <circle cx="32" cy="32" r="32" fill="#0A0505"/>
+  <!-- Gold film reel outer ring -->
+  <circle cx="32" cy="32" r="28" fill="none" stroke="#FFD700" stroke-width="2" stroke-dasharray="4 2"/>
+  <!-- Inner circle -->
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#A07500" stroke-width="1.5"/>
+  <!-- Center hub -->
+  <circle cx="32" cy="32" r="6" fill="#FFD700"/>
+  <!-- Reel holes -->
+  <circle cx="32" cy="10" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+  <circle cx="32" cy="54" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+  <circle cx="10" cy="32" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+  <circle cx="54" cy="32" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+  <circle cx="15.5" cy="15.5" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+  <circle cx="48.5" cy="48.5" r="3.5" fill="#1C0C0C" stroke="#A07500" stroke-width="1"/>
+</svg>

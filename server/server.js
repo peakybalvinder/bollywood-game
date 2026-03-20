@@ -1,9 +1,10 @@
 /**
- * Bollywood Movie Guessing Game — Backend Server
+ * FilmiPaheli — Multiplayer Bollywood Movie Guessing Game
+ * filmipaheli.com
  *
  * Per-player independent game state.
  * Scores accumulate across games within a session.
- * Host can transfer host role to any other player.
+ * Host can transfer the host role to any other player.
  */
 
 const express = require('express');
@@ -13,12 +14,53 @@ const cors   = require('cors');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-app.use(cors({ origin: '*' }));
+
+// ── CORS origins ─────────────────────────────────────────────────────────────
+// Always list explicit origins so credentials work correctly.
+// Safari rejects credentials:true with wildcard origin — use explicit list always.
+const ALLOWED_ORIGINS = [
+  'https://www.filmipaheli.com',
+  'https://filmipaheli.com',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  // Railway preview URLs (added via CLIENT_URL env var)
+  ...(process.env.CLIENT_URL ? [process.env.CLIENT_URL] : []),
+];
+
+function corsOrigin(origin, callback) {
+  // Allow requests with no origin (mobile apps, curl, Postman)
+  if (!origin) return callback(null, true);
+  if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+  // Allow any *.railway.app subdomain for preview deployments
+  if (origin.endsWith('.railway.app')) return callback(null, true);
+  return callback(new Error('CORS blocked: ' + origin), false);
+}
+
+app.use(cors({
+  origin: corsOrigin,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: false, // No cookies used — keep false to avoid Safari CORS issues
+}));
 app.use(express.json());
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: {
+    origin: corsOrigin,
+    methods: ['GET', 'POST'],
+    credentials: false,
+  },
+  // ── Cross-browser transport ───────────────────────────────────────────
+  // Start with polling (works everywhere including Safari), then upgrade
+  // to WebSocket. Never start WebSocket-only — Safari blocks cold WS.
+  transports: ['polling', 'websocket'],
+  allowUpgrades: true,
+  // ── Keep-alive for weak mobile/wifi networks ──────────────────────────
+  pingInterval: 25000,
+  pingTimeout: 20000,
+  connectTimeout: 45000,   // 45s to allow slow 3G connections
+  maxHttpBufferSize: 1e6,
+  allowEIO3: true,         // support legacy Engine.IO v3 clients
 });
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -475,7 +517,12 @@ io.on('connection', (socket) => {
 });
 
 // ─── Health ───────────────────────────────────────────────────────────────────
-app.get('/health', (_, res) => res.json({ status: 'ok', rooms: rooms.size }));
+app.get('/health', (_, res) => res.json({
+  status: 'ok',
+  rooms: rooms.size,
+  uptime: Math.floor(process.uptime()),
+  env: process.env.NODE_ENV || 'development',
+}));
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;

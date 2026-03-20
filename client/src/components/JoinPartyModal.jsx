@@ -1,18 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import socket from '../socket';
 
-/**
- * Join party modal.
- * If `initialCode` is provided (from a shared URL), we skip the code entry step
- * and go straight to the name step.
- */
-export default function JoinPartyModal({ onClose, onRoomReady, showToast, initialCode = null }) {
-  const [step, setStep] = useState(initialCode ? 'name' : 'code');
-  const [roomCode, setRoomCode] = useState(initialCode || '');
+export default function JoinPartyModal({
+  onClose, onRoomReady, showToast, initialCode = null, isConnected = true
+}) {
+  const [step, setStep]           = useState(initialCode ? 'name' : 'code');
+  const [roomCode, setRoomCode]   = useState(initialCode || '');
   const [playerName, setPlayerName] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading]     = useState(false);
 
-  // If a code arrives after mount (edge case), jump to name step
   useEffect(() => {
     if (initialCode) {
       setRoomCode(initialCode);
@@ -21,15 +17,39 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast, initia
   }, [initialCode]);
 
   function handleVerifyCode() {
-    if (!roomCode.trim() || roomCode.trim().length !== 6) {
-      return showToast('Room code must be 6 characters.', 'error');
-    }
+    const code = roomCode.trim().toUpperCase();
+    if (code.length !== 6) return showToast('Room code must be 6 characters.', 'error');
     setStep('name');
   }
 
   function handleJoin() {
     if (!playerName.trim()) return showToast('Enter your name!', 'error');
 
+    // ── Safari fix: ensure socket is connected before emitting ─────────
+    // On Safari, the socket may not have connected yet when the user
+    // clicks Join. We wait up to 8s for the connection, then retry.
+    if (!socket.connected) {
+      setLoading(true);
+      showToast('Connecting to server…', 'info', 2000);
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        if (socket.connected) {
+          clearInterval(interval);
+          emitJoin();
+        } else if (attempts >= 16) { // 8s max (16 × 500ms)
+          clearInterval(interval);
+          setLoading(false);
+          showToast('Could not connect. Check your internet and try again.', 'error');
+        }
+      }, 500);
+      return;
+    }
+
+    emitJoin();
+  }
+
+  function emitJoin() {
     setLoading(true);
     socket.emit(
       'join_room',
@@ -47,15 +67,8 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast, initia
     <div className="modal-backdrop animate-fade-in" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="card-dark rounded-2xl p-8 w-full max-w-md animate-slide-up relative">
 
-        {/* Close */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 text-gold-700 hover:text-gold-400 text-xl transition-colors"
-        >
-          ✕
-        </button>
+        <button onClick={onClose} className="absolute top-4 right-4 text-gold-700 hover:text-gold-400 text-xl transition-colors">✕</button>
 
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="text-3xl mb-2">🎟</div>
           <h2 className="font-display font-bold text-2xl gold-text">Join a Party</h2>
@@ -64,7 +77,13 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast, initia
           </p>
         </div>
 
-        {/* Step 1: Code entry */}
+        {/* Connection warning */}
+        {!isConnected && (
+          <div className="mb-4 bg-crimson-900 border border-crimson-700 rounded-lg px-4 py-2 text-xs text-red-300 text-center">
+            ⚠️ Connecting to server… please wait before joining.
+          </div>
+        )}
+
         {step === 'code' && (
           <>
             <div>
@@ -83,24 +102,19 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast, initia
               </p>
             </div>
             <div className="mt-8">
-              <button onClick={handleVerifyCode} className="btn-gold w-full py-4">
-                Continue →
-              </button>
+              <button onClick={handleVerifyCode} className="btn-gold w-full py-4">Continue →</button>
             </div>
           </>
         )}
 
-        {/* Step 2: Name entry */}
         {step === 'name' && (
           <>
-            {/* Show room code badge */}
             <div className="text-center mb-5">
               <p className="text-gold-700 text-xs mb-2">Joining room</p>
               <span className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-4 py-1.5 text-sm tracking-widest">
                 {roomCode}
               </span>
             </div>
-
             <div>
               <label className="block text-gold-600 text-xs uppercase tracking-widest mb-2">Your Name</label>
               <input
@@ -113,20 +127,16 @@ export default function JoinPartyModal({ onClose, onRoomReady, showToast, initia
                 onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
               />
             </div>
-
             <div className="mt-8 flex gap-3">
-              {/* Only show Back if user typed the code manually (not from URL) */}
               {!initialCode && (
-                <button onClick={() => setStep('code')} className="btn-ghost flex-1 py-4">
-                  ← Back
-                </button>
+                <button onClick={() => setStep('code')} className="btn-ghost flex-1 py-4">← Back</button>
               )}
               <button
                 onClick={handleJoin}
                 disabled={loading}
                 className={`btn-gold py-4 ${initialCode ? 'w-full' : 'flex-1'}`}
               >
-                {loading ? 'Joining…' : '🎬 Join Game'}
+                {loading ? 'Connecting…' : '🎬 Join Game'}
               </button>
             </div>
           </>

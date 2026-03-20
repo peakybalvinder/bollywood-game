@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Background -->
+  <rect width="1200" height="630" fill="#0A0505"/>
+  <!-- Radial glow left -->
+  <radialGradient id="gl" cx="20%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#3D0000" stop-opacity="0.6"/>
+    <stop offset="100%" stop-color="#0A0505" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1200" height="630" fill="url(#gl)"/>
+  <!-- Radial glow right -->
+  <radialGradient id="gr" cx="80%" cy="50%" r="50%">
+    <stop offset="0%" stop-color="#7A590011" stop-opacity="0.4"/>
+    <stop offset="100%" stop-color="#0A0505" stop-opacity="0"/>
+  </radialGradient>
+  <rect width="1200" height="630" fill="url(#gr)"/>
+
+  <!-- Film strip top -->
+  <rect width="1200" height="28" fill="#1C0C0C"/>
+  <rect y="4" width="1200" height="3" fill="#3D1515"/>
+  <rect y="21" width="1200" height="3" fill="#3D1515"/>
+  <!-- Film holes top -->
+  <rect x="10"  y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="42"  y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="74"  y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="106" y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="138" y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="170" y="6" width="18" height="16" rx="2" fill="#0A0505"/>
+
+  <!-- Film strip bottom -->
+  <rect y="602" width="1200" height="28" fill="#1C0C0C"/>
+  <rect y="606" width="1200" height="3" fill="#3D1515"/>
+  <rect y="623" width="1200" height="3" fill="#3D1515"/>
+  <!-- Film holes bottom -->
+  <rect x="10"  y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="42"  y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="74"  y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="106" y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="138" y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+  <rect x="170" y="608" width="18" height="16" rx="2" fill="#0A0505"/>
+
+  <!-- Clapperboard icon -->
+  <text x="600" y="175" text-anchor="middle" font-size="96" font-family="serif">🎬</text>
+
+  <!-- Brand name -->
+  <text x="600" y="290" text-anchor="middle"
+    font-family="Georgia, serif" font-weight="900" font-size="110"
+    fill="#FFD700">Filmi</text>
+  <text x="600" y="390" text-anchor="middle"
+    font-family="Georgia, serif" font-weight="900" font-size="90"
+    fill="#CC0000" font-style="italic">Paheli</text>
+
+  <!-- Hindi subtitle -->
+  <text x="600" y="440" text-anchor="middle"
+    font-family="serif" font-size="32" fill="#A07500">फ़िल्मी पहेली</text>
+
+  <!-- Tagline -->
+  <text x="600" y="510" text-anchor="middle"
+    font-family="Georgia, serif" font-size="28" fill="#7A5900" letter-spacing="4">
+    ✦  GUESS THE BOLLYWOOD MOVIE WITH FRIENDS  ✦
+  </text>
+
+  <!-- Domain -->
+  <text x="600" y="570" text-anchor="middle"
+    font-family="Georgia, serif" font-size="22" fill="#3D2A00" letter-spacing="2">
+    www.filmipaheli.com
+  </text>
+
+  <!-- Gold border -->
+  <rect x="4" y="4" width="1192" height="622" fill="none" stroke="#A07500" stroke-width="2" rx="4" opacity="0.4"/>
+</svg>
