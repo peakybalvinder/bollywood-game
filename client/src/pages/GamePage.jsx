@@ -148,7 +148,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       <header className="flex items-center justify-between px-4 md:px-8 py-3 border-b border-ink-700 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-2xl">🎬</span>
-          <span className="font-display font-bold text-gold-400 text-lg hidden sm:block">Bollywood Hangman</span>
+          <span className="font-display font-bold text-gold-400 text-lg hidden sm:block">FilmiPaheli 🎬</span>
         </div>
         <div className="flex items-center gap-2">
           <button
