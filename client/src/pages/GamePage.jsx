@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import socket from '../socket';
-import PlayerList from '../components/PlayerList';
-import ChatPanel from '../components/ChatPanel';
-import LivesDisplay from '../components/LivesDisplay';
-import MovieBlanks from '../components/MovieBlanks';
-import Keyboard from '../components/Keyboard';
+import PlayerList    from '../components/PlayerList';
+import ChatPanel     from '../components/ChatPanel';
+import LivesDisplay  from '../components/LivesDisplay';
+import MovieBlanks   from '../components/MovieBlanks';
+import Keyboard      from '../components/Keyboard';
 import MovieSearchModal from '../components/MovieSearchModal';
-import GameOverOverlay from '../components/GameOverOverlay';
-import Footer from '../components/Footer';
+import GameOverOverlay  from '../components/GameOverOverlay';
+import MobileNav     from '../components/MobileNav';
+import Footer        from '../components/Footer';
+import useAntiCheat  from '../hooks/useAntiCheat';
 
 export default function GamePage({ initialRoom, playerName, onLeave, showToast }) {
   const [room]    = useState(initialRoom);
-
   const [hostId, setHostId]     = useState(initialRoom.hostId);
   const isHost = socket.id === hostId;
 
@@ -25,16 +26,29 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
   const [lastRevealed, setLastRevealed]   = useState(new Set());
   const [lastGuessInfo, setLastGuessInfo] = useState(null);
   const [guessing, setGuessing]           = useState(false);
-  const guessInfoTimeout = useRef(null);
+  const [unreadChat, setUnreadChat]       = useState(0);
 
+  // Mobile tab state: 'game' | 'players' | 'chat'
+  const [mobileTab, setMobileTab] = useState('game');
+
+  const guessInfoTimeout = useRef(null);
   const mySocketId = socket.id;
   const isPlaying  = game?.status === 'playing';
   const nonHostPlayers = players.filter(p => !p.isHost);
 
-  // ── Socket events ─────────────────────────────────────────────────────
+  // Anti-cheat — only active for non-host players during a live game
+  useAntiCheat(!isHost && isPlaying);
+
+  // Track unread chat when user is not on chat tab (mobile)
+  const handleMobileTab = (tab) => {
+    setMobileTab(tab);
+    if (tab === 'chat') setUnreadChat(0);
+  };
+
+  // ── Socket events ─────────────────────────────────────────────────────────
   useEffect(() => {
     socket.on('game_started', ({ players: ps, playerGame: pg, gameConfig: gc }) => {
-      setGameConfig(gc || { hint: null });
+      setGameConfig(gc || { hint: null, movieName: null });
       if (pg) setGame(pg);
       setPlayers(ps);
       setShowGameOver(false);
@@ -42,6 +56,8 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       setLastRevealed(new Set());
       setLastGuessInfo(null);
       if (socket.id !== hostId) showToast('Game started! Guess the movie 🎬', 'success');
+      // Switch mobile to game tab on start
+      setMobileTab('game');
     });
 
     socket.on('guess_result', ({ letter, correct, positions, playerGame }) => {
@@ -52,10 +68,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       guessInfoTimeout.current = setTimeout(() => setLastGuessInfo(null), 2500);
     });
 
-    // Broadcast — updates leaderboard for EVERYONE including other players
-    socket.on('players_progress', ({ players: ps }) => {
-      setPlayers(ps);
-    });
+    socket.on('players_progress', ({ players: ps }) => setPlayers(ps));
 
     socket.on('your_game_over', ({ playerGame, players: ps }) => {
       setGame(playerGame);
@@ -81,6 +94,30 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       }
     });
 
+    // Anti-cheat notifications (host only)
+    socket.on('player_tab_hidden', ({ playerName: pn, count }) => {
+      showToast(`⚠️ ${pn} switched tabs (×${count})`, 'error', 4000);
+    });
+
+    socket.on('player_focus_lost', ({ playerName: pn, count }) => {
+      if (count === 1 || count % 3 === 0) {
+        showToast(`👀 ${pn} left the window (×${count})`, 'info', 3000);
+      }
+    });
+
+    // Session taken over in another tab
+    socket.on('session_takeover', ({ message }) => {
+      showToast(message, 'error', 6000);
+      onLeave();
+    });
+
+    // Track unread chat on mobile
+    socket.on('chat_message', () => {
+      if (mobileTab !== 'chat') {
+        setUnreadChat(n => n + 1);
+      }
+    });
+
     return () => {
       socket.off('game_started');
       socket.off('guess_result');
@@ -89,10 +126,13 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       socket.off('player_joined');
       socket.off('player_left');
       socket.off('host_transferred');
+      socket.off('player_tab_hidden');
+      socket.off('player_focus_lost');
+      socket.off('session_takeover');
+      socket.off('chat_message');
     };
-  }, [showToast, hostId]);
+  }, [showToast, hostId, mobileTab, onLeave]);
 
-  // ── Guess ─────────────────────────────────────────────────────────────
   const handleGuess = useCallback((letter) => {
     if (!isPlaying || guessing) return;
     setGuessing(true);
@@ -127,7 +167,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
   function copyRoomLink() {
     const link = `${window.location.origin}?room=${room.id}`;
     navigator.clipboard.writeText(link).then(
-      () => showToast('Link copied! Share with friends 🎟', 'success'),
+      () => showToast('Link copied! 🎟', 'success'),
       () => showToast(`Room code: ${room.id}`, 'info')
     );
   }
@@ -135,72 +175,54 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
   const totalLetters    = game ? game.blanks.filter(c => c !== ' ').length : 0;
   const revealedLetters = game ? game.blanks.filter(c => c !== '_' && c !== ' ').length : 0;
 
+  const playerListProps = {
+    players, myId: mySocketId, hostId, roomName: room.name, roomId: room.id,
+    isHost, onTransferHost: handleTransferHost, gameActive: !!gameConfig,
+  };
+
   return (
-    /*
-      KEY LAYOUT FIX:
-      h-screen + overflow-hidden on the root div locks the entire page to
-      exactly the viewport height. Nothing outside this box can cause page scroll.
-      Each inner section manages its own scroll independently.
-    */
     <div className="bg-cinema h-screen overflow-hidden flex flex-col">
 
-      {/* ── Top bar — fixed height ── */}
-      <header className="flex items-center justify-between px-4 md:px-8 py-3 border-b border-ink-700 shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🎬</span>
-          <span className="font-display font-bold text-gold-400 text-lg hidden sm:block">FilmiPaheli 🎬</span>
+      {/* ── Top bar ── */}
+      <header className="flex items-center justify-between px-3 md:px-6 py-2.5 border-b border-ink-700 shrink-0">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🎬</span>
+          <span className="font-display font-bold text-gold-400 text-base hidden sm:block">FilmiPaheli</span>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={copyRoomLink}
-            className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-3 py-1.5 text-xs tracking-widest hover:border-gold-700 transition-colors"
+            className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-2.5 py-1.5 text-xs tracking-widest hover:border-gold-700 transition-colors"
           >
             📋 {room.id}
           </button>
           <button
-            onClick={() => {
-              if (window.confirm('Leave? If you are the host, the game will end for everyone.')) onLeave();
-            }}
-            className="btn-ghost text-xs px-3 py-1.5"
+            onClick={() => { if (window.confirm('Leave? Host leaving ends the game for everyone.')) onLeave(); }}
+            className="btn-ghost text-xs px-2.5 py-1.5"
           >
             Leave
           </button>
         </div>
       </header>
 
-      {/* ── Body — fills remaining height, no overflow ── */}
-      {/*
-        flex-1 + min-h-0 is critical: flex-1 fills the space,
-        min-h-0 overrides the flex default that prevents shrinking below content size.
-        Each column scrolls independently inside this container.
-      */}
+      {/* ── Body ── */}
       <div className="flex-1 min-h-0 flex overflow-hidden">
 
-        {/* ── Left: Players — scrolls internally ── */}
+        {/* Left sidebar — desktop only */}
         <aside className="hidden lg:flex flex-col w-64 xl:w-72 shrink-0 border-r border-ink-700 overflow-hidden">
-          {/* The padding is inside so the scrollable content fills the full height */}
           <div className="flex-1 min-h-0 overflow-y-auto p-4">
-            <PlayerList
-              players={players}
-              myId={mySocketId}
-              hostId={hostId}
-              roomName={room.name}
-              roomId={room.id}
-              isHost={isHost}
-              onTransferHost={handleTransferHost}
-              gameActive={!!gameConfig}
-            />
+            <PlayerList {...playerListProps} />
           </div>
         </aside>
 
-        {/* ── Center: Game board — scrolls independently ── */}
+        {/* Center — game board */}
         <main className="flex-1 min-w-0 flex flex-col overflow-hidden">
 
-          {/* Scrollable game content */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="flex flex-col items-center px-4 pt-6 pb-4 gap-5 w-full max-w-2xl mx-auto">
+          {/* Desktop: always visible. Mobile: only when mobileTab === 'game' */}
+          <div className={`flex-1 min-h-0 overflow-y-auto ${mobileTab !== 'game' ? 'hidden md:block' : ''}`}>
+            <div className="flex flex-col items-center px-4 pt-5 pb-24 md:pb-6 gap-4 w-full max-w-2xl mx-auto">
 
-              {/* Non-host waiting */}
+              {/* Waiting — non-host */}
               {!game && !isHost && !gameConfig && (
                 <div className="text-center mt-12 animate-fade-in">
                   <div className="text-5xl mb-4 animate-flicker">🎞</div>
@@ -215,17 +237,17 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                 </div>
               )}
 
-              {/* Host pre-game */}
+              {/* Waiting — host */}
               {isHost && !gameConfig && (
                 <div className="text-center mt-12 animate-fade-in">
                   <div className="text-5xl mb-4">🎬</div>
                   <h2 className="font-display font-bold text-2xl text-gold-400 mb-2">
-                    {nonHostPlayers.length === 0 ? 'Waiting for players to join…' : 'Ready to start!'}
+                    {nonHostPlayers.length === 0 ? 'Waiting for players…' : 'Ready to start!'}
                   </h2>
                   <p className="text-gold-700 text-sm font-body mb-6">
                     {nonHostPlayers.length === 0
-                      ? 'Share the room code with your friends.'
-                      : `${nonHostPlayers.length} player${nonHostPlayers.length > 1 ? 's' : ''} joined. Pick a movie to begin.`}
+                      ? 'Share the room code with friends.'
+                      : `${nonHostPlayers.length} player${nonHostPlayers.length > 1 ? 's' : ''} joined. Pick a movie!`}
                   </p>
                   {nonHostPlayers.length > 0 && (
                     <button onClick={() => setShowMovieSearch(true)} className="btn-gold px-8 py-3">
@@ -235,52 +257,37 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                 </div>
               )}
 
-              {/* ── Host spectator view ── */}
+              {/* Host spectator */}
               {isHost && gameConfig && (
                 <div className="w-full animate-fade-in space-y-4">
-
-                  {/* Movie + hint header */}
-                  <div className="card-dark rounded-xl py-5 px-6">
-                    <div className="flex items-start justify-between gap-4 mb-4">
-                      <div>
-                        <p className="text-gold-700 text-xs uppercase tracking-widest mb-1">🎬 Spectating</p>
-                        <p className="font-display font-bold text-2xl text-gold-300">
-                          {gameConfig.movieName || '—'}
-                        </p>
-                        <p className="text-gold-700 text-sm font-body mt-1">
-                          {nonHostPlayers.length === 0
-                            ? 'No players yet'
-                            : `${nonHostPlayers.filter(p => p.gameStatus === 'playing' || p.gameStatus === 'waiting').length} still playing · ${nonHostPlayers.filter(p => p.gameStatus === 'won').length} guessed · ${nonHostPlayers.filter(p => p.gameStatus === 'lost').length} out`}
-                        </p>
-                      </div>
-                      {gameConfig.hint && (
-                        <div className="text-right shrink-0">
-                          <p className="text-gold-700 text-xs mb-1">Hints given</p>
-                          <div className="flex gap-1 flex-wrap justify-end">
-                            {gameConfig.hint.toUpperCase().split('').map((l, i) => (
-                              <span key={i} className="font-mono font-bold text-gold-400 bg-ink-800 border border-gold-800 rounded px-2 py-0.5 text-sm">{l}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+                  <div className="card-dark rounded-xl py-5 px-5 flex items-start gap-4">
+                    <span className="text-3xl shrink-0">🎬</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-display font-bold text-xl text-gold-400 truncate">
+                        {gameConfig.movieName}
+                      </p>
+                      <p className="text-gold-700 text-sm font-body mt-1">
+                        {nonHostPlayers.filter(p => p.gameStatus === 'playing' || !p.gameStatus).length} playing ·{' '}
+                        {nonHostPlayers.filter(p => p.gameStatus === 'won').length} guessed ·{' '}
+                        {nonHostPlayers.filter(p => p.gameStatus === 'lost').length} out
+                      </p>
                     </div>
-
-                    {/* Answer blanks — host sees the full word */}
-                    {gameConfig.movieName && (
-                      <div className="bg-ink-900 rounded-lg px-4 py-3 flex flex-wrap gap-1 justify-center">
-                        {gameConfig.movieName.split('').map((ch, i) => (
-                          ch === ' '
-                            ? <span key={i} className="w-4" />
-                            : <span key={i} className="font-display font-bold text-gold-400 text-lg w-8 text-center border-b-2 border-gold-600">{ch}</span>
-                        ))}
+                    {gameConfig.hint && (
+                      <div className="shrink-0 text-right">
+                        <p className="text-gold-700 text-xs mb-1">Hints</p>
+                        <div className="flex gap-1 flex-wrap justify-end">
+                          {gameConfig.hint.toUpperCase().split('').map((l, i) => (
+                            <span key={i} className="font-mono font-bold text-gold-400 bg-ink-800 border border-gold-800 rounded px-1.5 py-0.5 text-xs">{l}</span>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
 
-                  {/* Live player cards */}
+                  {/* Player cards */}
                   {nonHostPlayers.length === 0 ? (
                     <div className="card-dark rounded-xl p-6 text-center">
-                      <p className="text-gold-800 text-sm font-body italic">Waiting for players to join…</p>
+                      <p className="text-gold-800 text-sm font-body italic">No players yet…</p>
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -288,100 +295,67 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                         const lives  = p.livesLeft !== null ? p.livesLeft : 9;
                         const pct    = (lives / 9) * 100;
                         const status = p.gameStatus || 'waiting';
-
                         return (
                           <div key={p.id} className={`card-dark rounded-xl p-4 border transition-all duration-300 ${
-                            status === 'won'  ? 'border-green-600'   :
-                            status === 'lost' ? 'border-crimson-700' :
-                            p.lastLetter      ? 'border-gold-700'    : 'border-ink-600'
+                            status === 'won' ? 'border-green-600' : status === 'lost' ? 'border-crimson-700' :
+                            p.tabHidden ? 'border-amber-600' : p.lastLetter ? 'border-gold-700' : 'border-ink-600'
                           }`}>
-                            {/* Row 1: name + status + score */}
-                            <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center justify-between mb-2">
                               <div className="flex items-center gap-2">
-                                <span className="text-xl">
-                                  {status === 'won' ? '🏆' : status === 'lost' ? '💔' : status === 'playing' ? '🎯' : '⏳'}
-                                </span>
+                                <span className="text-lg">{status === 'won' ? '🏆' : status === 'lost' ? '💔' : p.tabHidden ? '👁️' : '🎯'}</span>
                                 <div>
                                   <p className="font-body font-semibold text-sm text-gold-300">{p.name}</p>
-                                  <p className="text-gold-700 text-xs">
-                                    {status === 'won'     && '✓ Guessed the movie!'}
-                                    {status === 'lost'    && '✗ Ran out of lives'}
-                                    {status === 'playing' && `${lives} / 9 lives remaining`}
-                                    {status === 'waiting' && 'Game just started…'}
+                                  <p className="text-xs text-gold-700">
+                                    {status === 'won' && '✓ Guessed!'}
+                                    {status === 'lost' && '✗ Out of lives'}
+                                    {status === 'playing' && `${lives}/9 lives`}
+                                    {status === 'waiting' && 'Just started'}
+                                    {p.tabHidden && <span className="text-amber-400 ml-1">⚠ Tab hidden ({p.tabHiddenCount}×)</span>}
                                   </p>
                                 </div>
                               </div>
                               <div className="text-right">
-                                <p className="font-mono font-bold text-gold-400 text-lg">{p.score}</p>
+                                <p className="font-mono font-bold text-gold-400 text-base">{p.score}</p>
                                 <p className="text-gold-800 text-xs">pts</p>
                               </div>
                             </div>
 
-                            {/* Row 2: player's current blanks (partial word) */}
+                            {/* Blanks */}
                             {p.blanks && (
-                              <div className="bg-ink-900 rounded-lg px-3 py-2 mb-3 flex flex-wrap gap-0.5 justify-center">
+                              <div className="bg-ink-900 rounded-lg px-3 py-2 mb-2 flex flex-wrap gap-0.5 justify-center">
                                 {p.blanks.map((ch, i) => (
-                                  ch === ' '
-                                    ? <span key={i} className="w-3" />
-                                    : <span key={i} className={`font-display font-bold text-sm w-6 text-center border-b-2 transition-all duration-300
-                                        ${ch !== '_'
-                                          ? 'text-gold-400 border-gold-500'
-                                          : 'text-transparent border-gold-800'}`}>
-                                        {ch !== '_' ? ch : ''}
-                                      </span>
+                                  ch === ' ' ? <span key={i} className="w-3" /> :
+                                  <span key={i} className={`font-display font-bold text-sm w-6 text-center border-b-2 transition-all duration-300 ${ch !== '_' ? 'text-gold-400 border-gold-500' : 'text-transparent border-gold-800'}`}>
+                                    {ch !== '_' ? ch : ''}
+                                  </span>
                                 ))}
                               </div>
                             )}
 
-                            {/* Row 3: last guessed letter + BOLLYWOOD lives */}
                             <div className="flex items-center justify-between">
-                              {/* Last guess indicator */}
                               <div className="flex items-center gap-2">
                                 {p.lastLetter ? (
-                                  <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 border ${
-                                    p.lastLetterCorrect
-                                      ? 'bg-green-950 border-green-700'
-                                      : 'bg-crimson-950 border-crimson-800'
-                                  }`}>
-                                    <span className="font-mono font-bold text-lg text-gold-200">
-                                      {p.lastLetter}
-                                    </span>
-                                    <span className={`text-sm font-bold ${p.lastLetterCorrect ? 'text-green-400' : 'text-crimson-400'}`}>
-                                      {p.lastLetterCorrect ? '✓' : '✗'}
-                                    </span>
-                                    <span className={`text-xs ${p.lastLetterCorrect ? 'text-green-500' : 'text-crimson-500'}`}>
-                                      {p.lastLetterCorrect ? 'correct' : 'wrong'}
-                                    </span>
+                                  <div className={`flex items-center gap-1 rounded-lg px-2 py-1 border text-xs ${p.lastLetterCorrect ? 'bg-green-950 border-green-700' : 'bg-crimson-950 border-crimson-800'}`}>
+                                    <span className="font-mono font-bold text-gold-200">{p.lastLetter}</span>
+                                    <span className={p.lastLetterCorrect ? 'text-green-400' : 'text-crimson-400'}>{p.lastLetterCorrect ? '✓' : '✗'}</span>
                                   </div>
-                                ) : (
-                                  <span className="text-gold-800 text-xs italic">No guesses yet</span>
-                                )}
-
-                                {/* Wrong letters */}
-                                {p.wrongLetters && p.wrongLetters.length > 0 && (
-                                  <div className="flex gap-1 flex-wrap">
-                                    {p.wrongLetters.map((l, i) => (
-                                      <span key={i} className="font-mono text-xs text-crimson-600 line-through">{l}</span>
-                                    ))}
+                                ) : <span className="text-gold-800 text-xs italic">No guesses</span>}
+                                {p.wrongLetters?.length > 0 && (
+                                  <div className="flex gap-0.5 flex-wrap">
+                                    {p.wrongLetters.map((l, i) => <span key={i} className="font-mono text-[10px] text-crimson-600 line-through">{l}</span>)}
                                   </div>
                                 )}
                               </div>
-
-                              {/* BOLLYWOOD lives */}
                               <div className="flex gap-0.5">
                                 {'BOLLYWOOD'.split('').map((ch, i) => (
-                                  <span key={i} className={`font-mono text-[10px] font-bold transition-all duration-300 ${
-                                    i < lives ? 'text-crimson-400' : 'text-ink-600 line-through'
-                                  }`}>{ch}</span>
+                                  <span key={i} className={`font-mono text-[10px] font-bold ${i < lives ? 'text-crimson-400' : 'text-ink-600 line-through'}`}>{ch}</span>
                                 ))}
                               </div>
                             </div>
 
-                            {/* Row 4: progress bar */}
-                            <div className="mt-3 w-full bg-ink-800 rounded-full h-1">
-                              <div className={`h-1 rounded-full transition-all duration-500 ${
-                                status === 'won' ? 'bg-green-500' : status === 'lost' ? 'bg-crimson-600' : 'bg-gold-600'
-                              }`} style={{ width: `${pct}%` }} />
+                            <div className="mt-2 w-full bg-ink-800 rounded-full h-1">
+                              <div className={`h-1 rounded-full transition-all duration-500 ${status === 'won' ? 'bg-green-500' : status === 'lost' ? 'bg-crimson-600' : 'bg-gold-600'}`}
+                                style={{ width: `${pct}%` }} />
                             </div>
                           </div>
                         );
@@ -389,11 +363,10 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                     </div>
                   )}
 
-                  {/* All players done — host can start next round */}
-                  {nonHostPlayers.length > 0 &&
-                    nonHostPlayers.every(p => p.gameStatus === 'won' || p.gameStatus === 'lost') && (
+                  {/* All done */}
+                  {nonHostPlayers.length > 0 && nonHostPlayers.every(p => p.gameStatus === 'won' || p.gameStatus === 'lost') && (
                     <div className="card-dark rounded-xl p-5 text-center space-y-3 border border-gold-800">
-                      <p className="font-display font-bold text-xl text-gold-400">Round over! 🎉</p>
+                      <p className="font-display font-bold text-xl text-gold-400">Round Over! 🎉</p>
                       <div className="space-y-1">
                         {[...nonHostPlayers].sort((a,b) => b.score - a.score).map((p, i) => (
                           <div key={p.id} className="flex items-center justify-between px-3 py-1.5 bg-ink-700 rounded-lg">
@@ -406,10 +379,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                           </div>
                         ))}
                       </div>
-                      <button
-                        onClick={() => { setShowMovieSearch(true); setGameConfig(null); }}
-                        className="btn-gold w-full py-3 mt-2"
-                      >
+                      <button onClick={() => { setShowMovieSearch(true); setGameConfig(null); }} className="btn-gold w-full py-3">
                         🎬 Pick Next Movie
                       </button>
                     </div>
@@ -417,76 +387,58 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                 </div>
               )}
 
-              {/* ── Player game board ── */}
+              {/* Player game board */}
               {!isHost && game && (
-                <div className="w-full flex flex-col gap-5 animate-fade-in">
-
-                  {/* Hint */}
+                <div className="w-full flex flex-col gap-4 animate-fade-in">
                   {game.hint && (
                     <div className="text-center text-gold-700 text-sm font-body">
                       Hint:{' '}
                       {game.hint.toUpperCase().split('').map((l, i) => (
-                        <span key={i} className="font-mono font-bold text-gold-400 bg-ink-700 border border-gold-800 rounded px-1.5 py-0.5 text-sm mx-0.5">
-                          {l}
-                        </span>
+                        <span key={i} className="font-mono font-bold text-gold-400 bg-ink-700 border border-gold-800 rounded px-1.5 py-0.5 text-sm mx-0.5">{l}</span>
                       ))}
                       {' '}pre-revealed.
                     </div>
                   )}
 
-                  {/* Blanks */}
-                  <div className="py-2">
-                    <MovieBlanks blanks={game.blanks} lastRevealed={lastRevealed} />
-                  </div>
+                  <div className="py-1"><MovieBlanks blanks={game.blanks} lastRevealed={lastRevealed} /></div>
 
-                  {/* Guess feedback */}
                   {lastGuessInfo && (
                     <div className={`text-center text-sm font-body animate-fade-in ${lastGuessInfo.correct ? 'text-green-400' : 'text-crimson-400'}`}>
                       <span className="font-mono font-bold">{lastGuessInfo.letter}</span>
-                      {lastGuessInfo.correct ? ' ✓ — Correct!' : ' ✗ — Wrong guess!'}
+                      {lastGuessInfo.correct ? ' ✓ — Correct!' : ' ✗ — Wrong!'}
                     </div>
                   )}
 
-                  {/* Lives */}
-                  <div className="card-dark rounded-xl py-4 px-4">
+                  <div className="card-dark rounded-xl py-3 px-4">
                     <LivesDisplay livesLeft={game.livesLeft} wrongLetters={game.wrongLetters} />
                   </div>
 
-                  {/* Progress bar */}
                   <div className="space-y-1">
                     <div className="w-full bg-ink-700 rounded-full h-1.5">
-                      <div
-                        className="bg-gradient-to-r from-crimson-600 to-gold-600 h-1.5 rounded-full transition-all duration-500"
-                        style={{ width: `${totalLetters ? (revealedLetters / totalLetters) * 100 : 0}%` }}
-                      />
+                      <div className="bg-gradient-to-r from-crimson-600 to-gold-600 h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${totalLetters ? (revealedLetters / totalLetters) * 100 : 0}%` }} />
                     </div>
-                    <p className="text-center text-gold-800 text-xs font-body">
-                      {revealedLetters} / {totalLetters} letters revealed
-                    </p>
+                    <p className="text-center text-gold-800 text-xs font-body">{revealedLetters} / {totalLetters} letters revealed</p>
                   </div>
 
-                  {/* Other players' live progress — visible to everyone */}
+                  {/* Other players mini progress */}
                   {nonHostPlayers.filter(p => p.id !== mySocketId).length > 0 && (
-                    <div className="card-dark rounded-xl p-4">
-                      <p className="text-gold-700 text-xs uppercase tracking-widest mb-3">Other Players</p>
-                      <div className="space-y-2">
+                    <div className="card-dark rounded-xl p-3">
+                      <p className="text-gold-700 text-xs uppercase tracking-widest mb-2">Other Players</p>
+                      <div className="space-y-1.5">
                         {nonHostPlayers.filter(p => p.id !== mySocketId).map((p) => {
-                          const lives  = p.livesLeft !== null ? p.livesLeft : 9;
+                          const lives = p.livesLeft !== null ? p.livesLeft : 9;
                           const status = p.gameStatus || 'waiting';
                           return (
-                            <div key={p.id} className="flex items-center gap-3">
-                              <span className="text-sm w-5">
-                                {status === 'won' ? '🏆' : status === 'lost' ? '💔' : '🎯'}
-                              </span>
-                              <span className="font-body text-sm text-gold-400 flex-1 truncate">{p.name}</span>
+                            <div key={p.id} className="flex items-center gap-2">
+                              <span className="text-xs w-4">{status === 'won' ? '🏆' : status === 'lost' ? '💔' : '🎯'}</span>
+                              <span className="font-body text-xs text-gold-400 flex-1 truncate">{p.name}</span>
                               <div className="flex gap-0.5">
                                 {'BOLLYWOOD'.split('').map((ch, i) => (
-                                  <span key={i} className={`font-mono text-[9px] font-bold ${
-                                    i < lives ? 'text-crimson-400' : 'text-ink-600 line-through'
-                                  }`}>{ch}</span>
+                                  <span key={i} className={`font-mono text-[8px] font-bold ${i < lives ? 'text-crimson-400' : 'text-ink-600 line-through'}`}>{ch}</span>
                                 ))}
                               </div>
-                              <span className="font-mono text-xs text-gold-600 shrink-0">{p.score}pts</span>
+                              <span className="font-mono text-[10px] text-gold-600 shrink-0">{p.score}pts</span>
                             </div>
                           );
                         })}
@@ -495,77 +447,64 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
                   )}
 
                   {/* Desktop keyboard */}
-                  <div className="hidden md:block card-dark rounded-xl py-5 px-4">
-                    <Keyboard
-                      guessedLetters={game.guessedLetters}
-                      wrongLetters={game.wrongLetters}
-                      onGuess={handleGuess}
-                      disabled={!isPlaying || guessing}
-                    />
+                  <div className="hidden md:block card-dark rounded-xl py-4 px-4">
+                    <Keyboard guessedLetters={game.guessedLetters} wrongLetters={game.wrongLetters} onGuess={handleGuess} disabled={!isPlaying || guessing} />
                   </div>
                 </div>
               )}
 
-              {/* Mobile player list */}
+              {/* Mobile: players panel */}
               <div className="lg:hidden w-full mt-2">
-                <PlayerList
-                  players={players}
-                  myId={mySocketId}
-                  hostId={hostId}
-                  roomName={room.name}
-                  roomId={room.id}
-                  isHost={isHost}
-                  onTransferHost={handleTransferHost}
-                  gameActive={!!gameConfig}
-                />
+                <PlayerList {...playerListProps} />
               </div>
             </div>
           </div>
 
-          {/* Mobile sticky keyboard */}
-          {!isHost && game && (
-            <div className="md:hidden shrink-0 bg-ink-900 border-t border-ink-700 px-3 py-3 shadow-2xl">
-              <Keyboard
-                guessedLetters={game.guessedLetters}
-                wrongLetters={game.wrongLetters}
-                onGuess={handleGuess}
-                disabled={!isPlaying || guessing}
-                compact
-              />
+          {/* Mobile: players tab */}
+          {mobileTab === 'players' && (
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 md:hidden">
+              <PlayerList {...playerListProps} />
             </div>
           )}
 
-          {/* Footer inside center column */}
-          <div className="shrink-0">
-            <Footer />
-          </div>
+          {/* Mobile: chat tab */}
+          {mobileTab === 'chat' && (
+            <div className="flex-1 min-h-0 overflow-hidden md:hidden">
+              <ChatPanel myId={mySocketId} playerName={playerName} />
+            </div>
+          )}
+
+          {/* Mobile sticky keyboard — only on game tab */}
+          {!isHost && game && mobileTab === 'game' && (
+            <div className="md:hidden shrink-0 bg-ink-900 border-t border-ink-700 px-2 py-2 shadow-2xl">
+              <Keyboard guessedLetters={game.guessedLetters} wrongLetters={game.wrongLetters} onGuess={handleGuess} disabled={!isPlaying || guessing} compact />
+            </div>
+          )}
+
+          {/* Mobile nav bottom spacer */}
+          <div className="md:hidden h-16 shrink-0" />
         </main>
 
-        {/* ── Right: Chat — ONLY the message list scrolls, not the page ── */}
+        {/* Right: Chat — desktop only */}
         <aside className="hidden md:flex flex-col w-72 xl:w-80 shrink-0 border-l border-ink-700 overflow-hidden">
-          {/*
-            p-4 on the outer aside then h-full on ChatPanel doesn't work because
-            padding breaks the height calculation. Instead: no padding on aside,
-            ChatPanel fills 100% and handles its own internal padding.
-          */}
           <ChatPanel myId={mySocketId} playerName={playerName} />
         </aside>
       </div>
 
+      {/* Mobile bottom nav */}
+      <MobileNav activeTab={mobileTab} onTabChange={handleMobileTab} unreadChat={unreadChat} />
+
+      {/* Footer — desktop only to save mobile space */}
+      <div className="hidden md:block shrink-0">
+        <Footer />
+      </div>
+
       {/* Modals */}
       {showMovieSearch && isHost && (
-        <MovieSearchModal
-          onSelectMovie={handleMovieSelected}
-          onClose={() => setShowMovieSearch(false)}
-        />
+        <MovieSearchModal onSelectMovie={handleMovieSelected} onClose={() => setShowMovieSearch(false)} />
       )}
       {showGameOver && (
-        <GameOverOverlay
-          game={game}
-          players={players}
-          isHost={isHost}
-          onPlayAgain={handlePlayAgain}
-        />
+        <GameOverOverlay game={game} players={players} isHost={isHost} onPlayAgain={handlePlayAgain} />
       )}
     </div>
   );

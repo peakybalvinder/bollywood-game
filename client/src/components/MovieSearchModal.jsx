@@ -260,13 +260,6 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
           >
             🎬 Start the Game
           </button>
-
-          {/* Debug info — shows server URL so host knows what's being hit */}
-          {SERVER_URL && (
-            <p className="text-ink-600 text-xs text-center font-mono">
-              search → {SERVER_URL}/api/search
-            </p>
-          )}
         </div>
       </div>
     </div>

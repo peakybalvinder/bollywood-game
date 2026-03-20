@@ -5,6 +5,7 @@ import CreatePartyModal from './components/CreatePartyModal';
 import JoinPartyModal from './components/JoinPartyModal';
 import GamePage from './pages/GamePage';
 import Toast from './components/Toast';
+import useSingleSession from './hooks/useSingleSession';
 
 export default function App() {
   const [view, setView]               = useState('dashboard');
@@ -16,6 +17,11 @@ export default function App() {
   const [connected, setConnected]     = useState(false);
   const [connError, setConnError]     = useState(false);
   const [connAttempts, setConnAttempts] = useState(0);
+
+  // Single session guard — if user opens another tab, warn them
+  useSingleSession(useCallback(() => {
+    showToast('FilmiPaheli opened in another tab. Please use only one tab.', 'error', 8000);
+  }, []));
 
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
     setToast({ message, type });

@@ -43,7 +43,7 @@
     <meta name="apple-mobile-web-app-title" content="FilmiPaheli" />
     <meta name="application-name" content="FilmiPaheli" />
 
-    <!-- ─── Structured Data (Google Rich Results) ───────────────────────── -->
+    <!-- ─── Structured Data ──────────────────────────────────────────────── -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -51,42 +51,40 @@
       "name": "FilmiPaheli",
       "alternateName": "फ़िल्मी पहेली",
       "url": "https://www.filmipaheli.com",
-      "description": "Free multiplayer Bollywood movie guessing game. Guess the movie one letter at a time with friends in real time. No login needed, up to 5 players.",
+      "description": "Free multiplayer Bollywood movie guessing game. Guess the movie one letter at a time with friends in real time.",
       "applicationCategory": "GameApplication",
       "genre": ["Trivia", "Puzzle", "Bollywood"],
       "operatingSystem": "Web Browser",
-      "browserRequirements": "Any modern browser",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "INR"
-      },
-      "author": {
-        "@type": "Person",
-        "name": "Piyush Jindal"
-      },
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "INR" },
+      "author": { "@type": "Person", "name": "Piyush Jindal" },
       "inLanguage": ["en", "hi"],
-      "keywords": "bollywood, movie guessing game, filmi paheli, multiplayer, trivia, hindi movies",
-      "image": "https://www.filmipaheli.com/og-image.png",
-      "screenshot": "https://www.filmipaheli.com/og-image.png",
-      "aggregateRating": {
-        "@type": "AggregateRating",
-        "ratingValue": "5",
-        "ratingCount": "1"
-      }
+      "image": "https://www.filmipaheli.com/og-image.png"
     }
     </script>
 
-    <!-- ─── Performance ──────────────────────────────────────────────────── -->
+    <!-- ─── Performance: preconnect critical origins ─────────────────────── -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="dns-prefetch" href="https://pure-connection-production-6caf.up.railway.app" />
+    <!-- Preconnect AdSense domains so first ad loads faster -->
+    <link rel="preconnect" href="https://pagead2.googlesyndication.com" crossorigin />
+    <link rel="dns-prefetch" href="https://googleads.g.doubleclick.net" />
+    <link rel="dns-prefetch" href="https://tpc.googlesyndication.com" />
 
     <!-- ─── Fonts ────────────────────────────────────────────────────────── -->
     <link
       href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400;1,700&family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
+
+    <!-- ─── Google AdSense ───────────────────────────────────────────────── -->
+    <!--
+      Loaded with async so it NEVER blocks page render or gameplay.
+      AdSense requires this exact script in <head> for site verification.
+      The actual ad units are rendered lazily by the AdBanner component
+      only when they scroll into the viewport (IntersectionObserver).
+    -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6013677642304711"
+         crossorigin="anonymous"></script>
   </head>
   <body>
     <div id="root"></div>
