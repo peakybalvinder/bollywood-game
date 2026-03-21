@@ -136,14 +136,13 @@ export default function DailyChallenge({ onBack }) {
                   Guessed in {saved.totalGuesses} tries with {9 - saved.wrongCount} lives remaining!
                 </p>
               )}
-              <div className="flex gap-3 justify-center flex-wrap">
+              <div className="flex flex-col items-center gap-3">
                 <button onClick={handleShare} className="btn-gold px-6 py-2.5">
                   {copied ? '✓ Copied!' : '📤 Share Result'}
                 </button>
-                <div className="text-center">
-                  <p className="text-gold-700 text-xs mb-1">Come back tomorrow for</p>
-                  <p className="text-gold-400 text-sm font-body">Daily Challenge #{DAY_NUM + 1}</p>
-                </div>
+                <p className="text-gold-700 text-sm font-body mt-1">Come back tomorrow for</p>
+                <p className="text-gold-400 font-body font-semibold">Daily Challenge #{DAY_NUM + 1} 🎬</p>
+                <button onClick={onBack} className="btn-ghost px-6 py-2 text-sm">← Back to Home</button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3">
@@ -214,11 +213,13 @@ export default function DailyChallenge({ onBack }) {
                   Guessed in {game.guessedLetters.length} tries · {game.livesLeft} lives left · Streak: {streak.current} 🔥
                 </p>
               )}
-              <div className="flex gap-3 justify-center flex-wrap">
+              <div className="flex flex-col items-center gap-3">
                 <button onClick={handleShare} className="btn-gold px-6 py-3">
                   {copied ? '✓ Copied!' : '📤 Share Result'}
                 </button>
-                <button onClick={() => setShowResult(false)} className="btn-ghost px-6 py-3">View Board</button>
+                <p className="text-gold-700 text-sm font-body">Come back tomorrow for</p>
+                <p className="text-gold-400 font-body font-semibold">Daily Challenge #{DAY_NUM + 1} 🎬</p>
+                <button onClick={onBack} className="btn-ghost px-6 py-2 text-sm mt-2">← Back to Home</button>
               </div>
             </div>
           </div>
