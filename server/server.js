@@ -129,7 +129,8 @@ function mkPlayerGame(movieName, hint) {
     ? [...new Set(hint.toLowerCase().replace(/[^a-z]/g, '').split(''))]
     : [];
   const blanks = movieName.split('').map((ch) => {
-    if (ch === ' ') return ' ';
+    // Spaces and special characters (: - . ' ! , etc.) are auto-revealed — only letters are blanks
+    if (!/[a-zA-Z]/.test(ch)) return ch;
     if (hintLetters.includes(ch.toLowerCase())) return ch;
     return '_';
   });
@@ -161,7 +162,10 @@ function processGuess(pg, letter) {
   return { correct: false };
 }
 
-function isWon(pg) { return !pg.blanks.includes('_'); }
+function isWon(pg) {
+  // Win only when all letter blanks are revealed (special chars are always revealed)
+  return !pg.blanks.includes('_');
+}
 
 // ─── Serialisers ─────────────────────────────────────────────────────────────
 function publicPlayerGame(pg, movieName) {
@@ -497,11 +501,35 @@ io.on('connection', (socket) => {
     const newHost = room.players.find((p) => p.id === newHostId);
     const oldHost = room.players.find((p) => p.id === socket.id);
     if (!newHost || newHost.id === socket.id) return cb({ success: false, error: 'Invalid player.' });
-    room.hostId = newHostId;
+
+    room.hostId    = newHostId;
     oldHost.isHost = false;
     newHost.isHost = true;
+
+    // Clear the new host's playerGame — they become spectator
     newHost.playerGame = null;
-    io.to(socket.data.roomId).emit('host_transferred', { newHostId, oldHostId: socket.id, players: room.players.map(publicPlayerRow) });
+
+    // If a game is in progress, end it cleanly so the new host can start fresh
+    const hadActiveGame = room.game !== null;
+    if (hadActiveGame) {
+      // Reveal movie name to everyone and reset round
+      const movieName = room.game.movieName;
+      room.game   = null;
+      room.status = 'waiting';
+      // Emit round_ended so all clients reset their game state
+      io.to(socket.data.roomId).emit('round_ended', {
+        movieName,
+        reason:  'Host role transferred — current round ended.',
+        players: room.players.map(publicPlayerRow),
+      });
+    }
+
+    io.to(socket.data.roomId).emit('host_transferred', {
+      newHostId,
+      oldHostId:      socket.id,
+      players:        room.players.map(publicPlayerRow),
+      hadActiveGame,
+    });
     cb({ success: true });
   });
 

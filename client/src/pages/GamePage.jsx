@@ -32,6 +32,10 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
   const [mobileTab, setMobileTab] = useState('game');
 
   const guessInfoTimeout = useRef(null);
+  // Ref for mobileTab — lets the chat handler read current value without
+  // being in the socket useEffect's dependency array (which would re-register all sockets)
+  const mobileTabRef = useRef(mobileTab);
+  useEffect(() => { mobileTabRef.current = mobileTab; }, [mobileTab]);
   const mySocketId = socket.id;
   const isPlaying  = game?.status === 'playing';
   const nonHostPlayers = players.filter(p => !p.isHost);
@@ -83,15 +87,32 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       showToast('A player left the party.', 'info');
     });
 
-    socket.on('host_transferred', ({ newHostId, players: ps }) => {
+    socket.on('host_transferred', ({ newHostId, hadActiveGame, players: ps }) => {
       setHostId(newHostId);
       setPlayers(ps);
       if (newHostId === socket.id) {
         showToast('You are now the host! 🎬', 'success');
         setGame(null);
+        // If no active game (or game was ended by transfer), open movie picker
+        if (!hadActiveGame) {
+          setGameConfig(null);
+          setShowMovieSearch(true);
+        }
+        // If hadActiveGame, round_ended will fire separately and reset state
       } else if (socket.id === hostId) {
-        showToast('Host role transferred.', 'info');
+        showToast('Host role transferred. You are now a player.', 'info');
       }
+    });
+
+    // Round ended by host transfer — new host gets movie picker automatically
+    socket.on('round_ended', ({ movieName, reason, players: ps }) => {
+      setGame(null);
+      setGameConfig(null);
+      setLastRevealed(new Set());
+      setLastGuessInfo(null);
+      setShowGameOver(false);
+      setPlayers(ps);
+      showToast('Round ended — new host can pick the next movie 🎬', 'info', 4000);
     });
 
     // Anti-cheat notifications (host only)
@@ -111,12 +132,11 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       onLeave();
     });
 
-    // Track unread chat on mobile
-    socket.on('chat_message', () => {
-      if (mobileTab !== 'chat') {
-        setUnreadChat(n => n + 1);
-      }
-    });
+    // Track unread chat on mobile using ref — avoids stale closure without re-registering
+    function onChatUnread() {
+      if (mobileTabRef.current !== 'chat') setUnreadChat(n => n + 1);
+    }
+    socket.on('chat_message', onChatUnread);
 
     return () => {
       socket.off('game_started');
@@ -126,12 +146,13 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       socket.off('player_joined');
       socket.off('player_left');
       socket.off('host_transferred');
+      socket.off('round_ended');
       socket.off('player_tab_hidden');
       socket.off('player_focus_lost');
       socket.off('session_takeover');
-      socket.off('chat_message');
+      socket.off('chat_message', onChatUnread);
     };
-  }, [showToast, hostId, mobileTab, onLeave]);
+  }, [showToast, hostId, onLeave]); // mobileTab intentionally excluded — handled via ref
 
   const handleGuess = useCallback((letter) => {
     if (!isPlaying || guessing) return;

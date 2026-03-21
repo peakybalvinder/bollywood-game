@@ -1,48 +1,60 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import socket from '../socket';
 import clsx from 'clsx';
 
+const EMOJIS = ['😂','🎬','🎭','🤔','👏','🔥','❤️','😍','🤣','😎','🙌','💯','🎉','😱','👀','🎵','🙏','😅','🤩','🥳'];
+
 export default function ChatPanel({ myId, playerName }) {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput]       = useState('');
-  const bottomRef               = useRef(null);
+  const [messages, setMessages]   = useState([]);
+  const [input, setInput]         = useState('');
+  const [showEmoji, setShowEmoji] = useState(false);
+  const bottomRef  = useRef(null);
+  const inputRef   = useRef(null);
+  // Keep a stable ref to the handler so we always remove the exact same function
+  const handlerRef = useRef(null);
 
   useEffect(() => {
-    function onMessage(msg) {
-      setMessages((prev) => [...prev, msg]);
+    // Register with a named, stable reference so it never gets accidentally
+    // removed by GamePage's socket.off('chat_message', specificHandler) calls.
+    // Using a ref ensures the exact same function is both added and removed.
+    function onChatMessage(msg) {
+      setMessages(prev => [...prev, msg]);
     }
-    socket.on('chat_message', onMessage);
-    return () => socket.off('chat_message', onMessage);
-  }, []);
+    handlerRef.current = onChatMessage;
 
-  // Auto-scroll to latest message
+    socket.on('chat_message', onChatMessage);
+
+    return () => {
+      // Remove only our specific handler — never removes other listeners
+      socket.off('chat_message', onChatMessage);
+    };
+  }, []); // empty deps — only register once, never re-register
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  function sendMessage() {
+  const sendMessage = useCallback(() => {
     const text = input.trim();
     if (!text) return;
     socket.emit('chat_message', { message: text });
     setInput('');
+    setShowEmoji(false);
+    inputRef.current?.focus();
+  }, [input]);
+
+  function insertEmoji(emoji) {
+    setInput(prev => prev + emoji);
+    setShowEmoji(false);
+    inputRef.current?.focus();
   }
 
   function formatTime(ts) {
     const d = new Date(ts);
-    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+    return `${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
   }
 
   return (
-    /*
-      The parent <aside> has overflow-hidden and is a flex column child.
-      This component must fill it exactly and scroll ONLY its message list.
-
-      Structure:
-        div.h-full.flex-col          ← fills the aside completely
-          ├── header (shrink-0)      ← fixed height
-          ├── messages (flex-1 overflow-y-auto min-h-0)  ← ONLY this scrolls
-          └── input (shrink-0)       ← fixed height
-    */
     <div className="h-full flex flex-col bg-ink-800 border border-ink-700 rounded-none">
 
       {/* Header */}
@@ -52,20 +64,17 @@ export default function ChatPanel({ myId, playerName }) {
         <span className="ml-auto w-2 h-2 rounded-full bg-green-500 animate-pulse" title="Live" />
       </div>
 
-      {/* Messages — the ONLY scrollable section */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3">
+      {/* Messages */}
+      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
           <p className="text-gold-800 text-xs text-center mt-8 font-body italic">
-            No messages yet. Say something!
+            No messages yet. Say something! 👋
           </p>
         )}
         {messages.map((msg) => {
           const isMe = msg.playerId === myId;
           return (
-            <div
-              key={msg.id}
-              className={clsx('flex flex-col', isMe ? 'items-end' : 'items-start')}
-            >
+            <div key={msg.id} className={clsx('flex flex-col', isMe ? 'items-end' : 'items-start')}>
               <div className="flex items-center gap-2 mb-1">
                 {!isMe && <span className="text-gold-600 text-xs font-semibold">{msg.playerName}</span>}
                 <span className="text-gold-800 text-xs">{formatTime(msg.timestamp)}</span>
@@ -85,14 +94,45 @@ export default function ChatPanel({ myId, playerName }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input — fixed at bottom */}
+      {/* Emoji picker */}
+      {showEmoji && (
+        <div className="px-3 py-2 border-t border-ink-600 bg-ink-900 flex flex-wrap gap-2 shrink-0">
+          {EMOJIS.map((e) => (
+            <button
+              key={e}
+              onClick={() => insertEmoji(e)}
+              className="text-xl hover:scale-125 transition-transform duration-100 select-none"
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
       <div className="px-3 py-3 border-t border-ink-600 flex gap-2 shrink-0">
+        <button
+          onClick={() => setShowEmoji(v => !v)}
+          className={clsx(
+            'text-xl shrink-0 transition-colors select-none',
+            showEmoji ? 'text-gold-400' : 'text-gold-700 hover:text-gold-500'
+          )}
+          title="Emoji"
+        >
+          😊
+        </button>
         <input
-          className="input-dark text-sm py-2"
+          ref={inputRef}
+          className="input-dark text-sm py-2 flex-1"
           placeholder="Type a message…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              sendMessage();
+            }
+          }}
           maxLength={300}
         />
         <button

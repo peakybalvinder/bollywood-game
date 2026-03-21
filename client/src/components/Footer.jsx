@@ -1,10 +1,11 @@
 import React from 'react';
 
 const LINKS = [
-  { label: 'FAQ',           hash: '#faq'       },
-  { label: 'Terms',         hash: '#terms'     },
-  { label: 'Privacy Policy', hash: '#privacy'  },
-  { label: 'Disclaimer',    hash: '#disclaimer'},
+  { label: 'How to Play',   hash: '#how-to-play' },
+  { label: 'FAQ',           hash: '#faq'         },
+  { label: 'Terms',         hash: '#terms'       },
+  { label: 'Privacy Policy', hash: '#privacy'    },
+  { label: 'Disclaimer',    hash: '#disclaimer'  },
 ];
 
 export default function Footer() {
