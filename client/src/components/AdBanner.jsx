@@ -71,8 +71,9 @@ export default function AdBanner({
     tryPush();
   }, [isVisible]);
 
-  // If AdSense is blocked (ad blocker) or fails, render nothing — no broken layout
-  if (adFailed) return null;
+  // Don't render if slot ID is a placeholder or invalid (prevents stray text in UI)
+  const isValidSlot = slot && /^[0-9]+$/.test(slot);
+  if (adFailed || !isValidSlot) return null;
 
   return (
     <div

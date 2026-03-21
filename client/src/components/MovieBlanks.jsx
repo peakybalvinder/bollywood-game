@@ -2,63 +2,61 @@ import React from 'react';
 import clsx from 'clsx';
 
 /**
- * Renders movie blanks as responsive letter tiles.
+ * Renders movie blanks correctly:
  *
- * Special characters (: - . ' ! , & etc.) are shown as-is in a smaller
- * style between word groups — they are never blank tiles.
- * Only alphabetic characters get blank underscore tiles.
- * Spaces are word separators (gap between groups).
+ *   Letters (a-z)        → blank tile (_) or revealed letter
+ *   Numbers (0-9)        → blank tile or revealed digit
+ *   Spaces               → word gap between groups
+ *   Special chars (: - .) → shown as-is inline, styled in gold, never a blank
+ *
+ * The server already sends special chars as their actual value (auto-revealed).
+ * This component just displays them correctly.
  */
 export default function MovieBlanks({ blanks = [], lastRevealed = new Set() }) {
-  // Build groups: each group is either a 'word' (array of letter cells)
-  // or a 'special' character to display inline
-  const groups = [];
-  let currentWord = [];
+  // Build display groups
+  const groups  = [];
+  let   word    = [];
 
   function flushWord() {
-    if (currentWord.length) {
-      groups.push({ type: 'word', cells: currentWord });
-      currentWord = [];
-    }
+    if (word.length) { groups.push({ type: 'word', cells: [...word] }); word = []; }
   }
 
   blanks.forEach((ch, i) => {
     if (ch === ' ') {
       flushWord();
       groups.push({ type: 'space' });
-    } else if (/[a-zA-Z_]/.test(ch)) {
-      // Letter or unrevealed blank — part of a word group
-      currentWord.push({ ch, i });
+    } else if (/[a-zA-Z0-9_]/.test(ch)) {
+      // Letter, digit, or unrevealed blank — part of a word tile group
+      word.push({ ch, i });
     } else {
-      // Special character (: - . ' ! etc.) — flush current word,
-      // show the special char as its own inline element, then continue
+      // Special character — flush current word, add as inline symbol
       flushWord();
-      groups.push({ type: 'special', ch, i });
+      groups.push({ type: 'special', ch });
     }
   });
   flushWord();
 
   return (
     <div className="w-full px-2">
-      <div className="flex flex-wrap justify-center items-end gap-y-3" style={{ columnGap: '12px' }}>
+      <div className="flex flex-wrap justify-center items-end gap-y-3" style={{ columnGap: '10px' }}>
         {groups.map((group, gi) => {
+
           if (group.type === 'space') {
-            return <div key={`sp-${gi}`} className="w-4" />;
+            return <div key={`sp-${gi}`} className="w-4 shrink-0" />;
           }
 
           if (group.type === 'special') {
             return (
               <span
                 key={`sc-${gi}`}
-                className="font-display font-bold text-gold-500 text-xl md:text-2xl pb-1 select-none"
-                aria-hidden="true"
+                className="font-display font-bold text-gold-500 text-xl md:text-2xl pb-0.5 select-none"
               >
                 {group.ch}
               </span>
             );
           }
 
-          // Word group — letter tiles
+          // Word tile group
           return (
             <div key={`w-${gi}`} className="flex gap-0.5">
               {group.cells.map(({ ch, i }) => {

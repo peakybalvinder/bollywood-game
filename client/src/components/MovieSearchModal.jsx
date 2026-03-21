@@ -107,8 +107,11 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
 
   const hintError = getHintError();
 
+  // Only alpha chars count — special chars/numbers are always shown, never blank
   const allLettersRevealed = movieTitle.length > 0 && (() => {
-    const uniqueLetters = [...new Set(movieTitle.toLowerCase().replace(/[^a-z]/g, '').split(''))];
+    const uniqueLetters = [...new Set(
+      movieTitle.toLowerCase().replace(/[^a-z]/g, '').split('')
+    )].filter(Boolean);
     return uniqueLetters.length > 0 && uniqueLetters.every(l => hintLetters.includes(l));
   })();
 
@@ -116,7 +119,19 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
 
   const blanksPreview = movieTitle
     ? movieTitle.split('').map((ch, i) => {
-        if (ch === ' ') return <span key={i} className="w-4 inline-block" />;
+        if (ch === ' ') {
+          // Space — word gap
+          return <span key={i} className="w-4 inline-block" />;
+        }
+        if (!/[a-zA-Z0-9]/.test(ch)) {
+          // Special char (: - . ' ! etc.) — show as-is, no blank tile
+          return (
+            <span key={i} className="font-display font-bold text-gold-500 text-base pb-1 mx-0.5 select-none">
+              {ch}
+            </span>
+          );
+        }
+        // Letter or number — blank tile or revealed
         const revealed = hintLetters.includes(ch.toLowerCase());
         return (
           <span key={i} className={`inline-flex items-end justify-center w-7 h-9 border-b-2 font-display font-bold text-sm mx-0.5
@@ -232,7 +247,7 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
               value={hints}
               onChange={(e) => setHints(e.target.value.toUpperCase().replace(/[^A-Z]/g, ''))}
               disabled={!movieTitle}
-              maxLength={10}
+              maxLength={52}
             />
             {hintLetters.length > 0 && !hintError && !allLettersRevealed && (
               <div className="flex gap-1.5 mt-2 flex-wrap">
@@ -260,6 +275,7 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
           >
             🎬 Start the Game
           </button>
+
         </div>
       </div>
     </div>
