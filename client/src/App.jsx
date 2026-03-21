@@ -11,6 +11,8 @@ import TermsAndConditions from './pages/TermsAndConditions';
 import PrivacyPolicy     from './pages/PrivacyPolicy';
 import Disclaimer        from './pages/Disclaimer';
 import HowToPlay         from './pages/HowToPlay';
+import DailyChallenge    from './pages/DailyChallenge';
+import VsComputer        from './pages/VsComputer';
 
 export default function App() {
   const [view, setView]               = useState('dashboard');
@@ -23,6 +25,7 @@ export default function App() {
   const [connError, setConnError]     = useState(false);
   const [connAttempts, setConnAttempts] = useState(0);
   const [tabBlocked, setTabBlocked]   = useState(false);
+  const [soloMode, setSoloMode]         = useState(null); // null | 'daily' | 'vs-computer'
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
@@ -44,6 +47,8 @@ export default function App() {
     if (h === '#privacy')    return 'privacy';
     if (h === '#disclaimer') return 'disclaimer';
     if (h === '#how-to-play') return 'howtoplay';
+    if (h === '#daily')       return 'daily';
+    if (h === '#vs-computer') return 'vscomputer';
     return null;
   });
 
@@ -55,6 +60,8 @@ export default function App() {
       else if (h === '#privacy')      setLegalPage('privacy');
       else if (h === '#disclaimer')   setLegalPage('disclaimer');
       else if (h === '#how-to-play')  setLegalPage('howtoplay');
+      else if (h === '#daily')           setLegalPage('daily');
+      else if (h === '#vs-computer')     setLegalPage('vscomputer');
       else setLegalPage(null);
     }
     window.addEventListener('hashchange', onHashChange);
@@ -224,6 +231,8 @@ export default function App() {
 
   // ── Legal / info pages ────────────────────────────────────────────────────
   if (legalPage === 'faq')        return <FAQ onBack={goBack} />;
+  if (legalPage === 'daily')       return <DailyChallenge onBack={goBack} />;
+  if (legalPage === 'vscomputer')  return <VsComputer onBack={goBack} />;
   if (legalPage === 'terms')      return <TermsAndConditions onBack={goBack} />;
   if (legalPage === 'privacy')    return <PrivacyPolicy onBack={goBack} />;
   if (legalPage === 'disclaimer') return <Disclaimer onBack={goBack} />;
@@ -242,7 +251,12 @@ export default function App() {
 
       {view === 'dashboard' && (
         <>
-          <Dashboard onCreateParty={() => setShowCreate(true)} onJoinParty={() => setShowJoin(true)} />
+          <Dashboard
+            onCreateParty={() => setShowCreate(true)}
+            onJoinParty={() => setShowJoin(true)}
+            onDailyChallenge={() => { window.location.hash = '#daily'; }}
+            onVsComputer={() => { window.location.hash = '#vs-computer'; }}
+          />
           {showCreate && (
             <CreatePartyModal onClose={() => setShowCreate(false)} onRoomReady={handleRoomReady} showToast={showToast} isConnected={connected} />
           )}
