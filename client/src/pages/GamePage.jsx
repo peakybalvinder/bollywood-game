@@ -11,10 +11,12 @@ import MobileNav     from '../components/MobileNav';
 import Footer        from '../components/Footer';
 import useAntiCheat  from '../hooks/useAntiCheat';
 
-export default function GamePage({ initialRoom, playerName, onLeave, showToast }) {
+export default function GamePage({ initialRoom, playerName, isHostOverride, onLeave, showToast }) {
   const [room]    = useState(initialRoom);
   const [hostId, setHostId]     = useState(initialRoom.hostId);
-  const isHost = socket.id === hostId;
+  // isHostOverride comes from App.jsx and is updated on rejoin — prevents
+  // the false-negative where socket.id changes after reconnect
+  const isHost = isHostOverride !== undefined ? isHostOverride : (socket.id === hostId);
 
   const [gameConfig, setGameConfig]   = useState(initialRoom.game || null);
   const [game, setGame]               = useState(initialRoom.playerGame || null);
@@ -49,6 +51,22 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
     setMobileTab(tab);
     if (tab === 'chat') setUnreadChat(0);
   };
+
+  // ── Restore state after reconnect ───────────────────────────────────────────
+  // When socket reconnects, App.jsx calls rejoin_room and updates initialRoom via setRoomData.
+  // But GamePage was already mounted with old initialRoom — we need to sync.
+  useEffect(() => {
+    // Re-sync hostId whenever initialRoom.hostId changes (updated by rejoin)
+    setHostId(initialRoom.hostId);
+    // Re-sync gameConfig if server says there's an active game
+    if (initialRoom.game && !gameConfig) {
+      setGameConfig(initialRoom.game);
+    }
+    // Re-sync players
+    if (initialRoom.players) {
+      setPlayers(initialRoom.players);
+    }
+  }, [initialRoom.hostId, initialRoom.game, initialRoom.players]);
 
   // ── Socket events ─────────────────────────────────────────────────────────
   useEffect(() => {

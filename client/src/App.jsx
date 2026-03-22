@@ -125,12 +125,19 @@ export default function App() {
           { roomId: rd.room.id, playerName: rd.playerName, sessionKey },
           ({ success, room: updatedRoom }) => {
             if (success && updatedRoom) {
-              // Update room data silently — no toast, game continues
-              setRoomData(prev => prev ? { ...prev, room: updatedRoom } : prev);
-              console.log('[FilmiPaheli] Silently rejoined room', rd.room.id);
+              // Update room data — this refreshes hostId, players, gameConfig in GamePage
+              setRoomData(prev => prev ? {
+                ...prev,
+                room: updatedRoom,
+                // Re-derive isHost based on fresh server state
+                isHost: updatedRoom.hostId === socket.id,
+              } : prev);
+              console.log('[FilmiPaheli] Rejoined room', rd.room.id, '| hostId:', updatedRoom.hostId, '| myId:', socket.id);
             } else {
-              // Room is gone (host actually left during the outage)
+              // Room is gone — host left during the outage
               showToast('Reconnected, but the party ended while you were away.', 'info', 4000);
+              setView('dashboard');
+              setRoomData(null);
             }
           }
         );
@@ -294,7 +301,7 @@ export default function App() {
         <GamePage
           initialRoom={roomData.room}
           playerName={roomData.playerName}
-          isHost={roomData.isHost}
+          isHostOverride={roomData.isHost}
           onLeave={handleLeaveGame}
           showToast={showToast}
         />

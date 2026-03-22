@@ -351,53 +351,67 @@ io.on('connection', (socket) => {
     disconnectTimers.set(socket.id, timer);
   });
 
-  // ── Reconnect — cancel grace period if player comes back ─────────────────
+  // ── Rejoin room after reconnect ─────────────────────────────────────────────
+  // Called by the client after socket reconnects (iOS background, network blip).
+  // Strategy: find the old player by their previous socket ID, update it IN PLACE
+  // (preserving isHost, playerGame, score), cancel grace period timer.
   socket.on('rejoin_room', ({ roomId, playerName, sessionKey }, cb) => {
-    // Cancel any pending disconnect timer for this player (by session key)
-    // Find the old socket that was disconnecting
-    for (const [oldSocketId, timer] of disconnectTimers) {
-      const oldSess = activeSessions.get(sessionKey);
-      if (oldSess === oldSocketId || sessionKey === socket.data.sessionKey) {
-        clearTimeout(timer);
-        disconnectTimers.delete(oldSocketId);
-        break;
-      }
-    }
-
-    // Just re-use join_room logic
     const id   = sanitize(roomId, 6).toUpperCase();
     const name = sanitize(playerName, 24) || 'Guest';
     const room = rooms.get(id);
 
     if (!room) return cb({ success: false, error: 'Room no longer exists.' });
 
-    // Remove old ghost entry if any
-    room.players = room.players.filter(p => activeSessions.get(sessionKey) !== p.id || p.id === socket.id);
+    // Find the old socket ID for this session
+    const oldSocketId = activeSessions.get(sessionKey);
 
-    // Update session
+    // ── Cancel the grace period timer for the old socket ─────────────────────
+    if (oldSocketId && disconnectTimers.has(oldSocketId)) {
+      clearTimeout(disconnectTimers.get(oldSocketId));
+      disconnectTimers.delete(oldSocketId);
+      console.log(`[REJOIN] Cancelled grace timer for ${oldSocketId}`);
+    }
+
+    // ── Update session map ────────────────────────────────────────────────────
     activeSessions.set(sessionKey, socket.id);
-    socket.data.sessionKey = sessionKey;
+    socket.data.sessionKey  = sessionKey;
+    socket.data.roomId      = id;
+    socket.data.playerName  = name;
 
-    // Check if already in room under new socket ID
-    const existing = room.players.find(p => p.id === socket.id);
-    if (!existing) {
-      const player = mkPlayer(socket.id, name);
+    // ── Find and update the old player entry IN PLACE ─────────────────────────
+    // This preserves: isHost, score, playerGame, guessedCorrectly
+    let player = room.players.find(p => p.id === oldSocketId);
+
+    if (player) {
+      // Update socket ID in-place — player keeps all their state
+      player.id           = socket.id;
+      player.lastActivity = Date.now();
+
+      // If this player was the host, update room.hostId too
+      if (room.hostId === oldSocketId) {
+        room.hostId = socket.id;
+        console.log(`[REJOIN] Host socket updated: ${oldSocketId} → ${socket.id}`);
+      }
+    } else {
+      // Player entry was already removed (grace period fired before rejoin)
+      // Re-add them as a fresh player
+      player = mkPlayer(socket.id, name);
       if (room.game && room.status === 'playing') {
         player.playerGame = mkPlayerGame(room.game.movieName, room.game.hint);
       }
       room.players.push(player);
+      console.log(`[REJOIN] Player ${name} re-added after grace period expired`);
     }
 
     socket.join(id);
-    socket.data.roomId      = id;
-    socket.data.playerName  = name;
 
+    // Notify everyone that player reconnected (small toast, not disruptive)
     io.to(id).emit('player_rejoined', {
       playerName: name,
-      players: room.players.map(publicPlayerRow),
+      players:    room.players.map(publicPlayerRow),
     });
 
-    console.log(`[REJOIN] ${name} rejoined ${id}`);
+    console.log(`[REJOIN] ${name} (${socket.id}) rejoined room ${id} | hostId: ${room.hostId}`);
     cb({ success: true, room: publicRoom(room, socket.id) });
   });
 
