@@ -62,9 +62,11 @@ const io = new Server(server, {
   cors: { origin: corsOrigin, methods: ['GET', 'POST'], credentials: false },
   transports: ['polling', 'websocket'],
   allowUpgrades: true,
-  pingInterval: 25000,
-  pingTimeout: 20000,
-  connectTimeout: 45000,
+  // iOS Safari kills WebSocket connections when app goes to background.
+  // Generous timeouts give the device time to resume before we declare disconnect.
+  pingInterval: 30000,    // ping every 30s
+  pingTimeout: 60000,     // wait 60s for pong before declaring disconnect
+  connectTimeout: 60000,  // 60s to establish initial connection
   maxHttpBufferSize: 1e6,
   allowEIO3: true,
 });
@@ -83,6 +85,13 @@ const TMDB_API_KEY        = process.env.TMDB_API_KEY || '';
 
 // ─── In-memory store ─────────────────────────────────────────────────────────
 const rooms = new Map();
+
+// ── Disconnect grace periods ──────────────────────────────────────────────────
+// When a socket disconnects (iOS background, network blip), we wait before
+// firing host_left / player_left. If they reconnect within the grace period,
+// nothing happens. This prevents false "host left" on mobile tab switching.
+const GRACE_PERIOD_MS = 30000; // 30 seconds
+const disconnectTimers = new Map(); // socketId → timer
 
 // ── Single-session enforcement ────────────────────────────────────────────────
 // Maps playerName+roomId → socketId so we can kick duplicate sessions
@@ -293,30 +302,102 @@ io.on('connection', (socket) => {
   socket.data.ip = ip;
   console.log(`[+] ${socket.id} | IP: ${ip} | Connections from IP: ${ipCount}`);
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    // Decrease IP connection count
     const count = Math.max(0, (ipConnections.get(socket.data.ip) || 1) - 1);
     if (count === 0) ipConnections.delete(socket.data.ip);
     else ipConnections.set(socket.data.ip, count);
 
-    console.log(`[-] ${socket.id}`);
+    console.log(`[-] ${socket.id} | reason: ${reason}`);
     const room = rooms.get(socket.data.roomId);
     if (!room) return;
 
-    // Clean up session
-    for (const [key, id] of activeSessions) {
-      if (id === socket.id) { activeSessions.delete(key); break; }
+    // On iOS, when user switches apps or the screen locks, Safari drops the
+    // connection but the user hasn't intentionally left. We wait 30 seconds
+    // before actually removing them, giving time for reconnection.
+    const gracePeriod = reason === 'transport close' || reason === 'ping timeout' || reason === 'transport error'
+      ? GRACE_PERIOD_MS
+      : 0; // Intentional disconnect (browser closed) — act immediately
+
+    const timer = setTimeout(() => {
+      disconnectTimers.delete(socket.id);
+
+      // Check if player already reconnected (socket.data.roomId may have changed)
+      const currentRoom = rooms.get(socket.data.roomId);
+      if (!currentRoom) return;
+
+      // Check if this socket is still the active one in the room
+      const stillInRoom = currentRoom.players.find(p => p.id === socket.id);
+      if (!stillInRoom) return; // Already replaced by reconnect
+
+      // Clean up session key
+      for (const [key, id] of activeSessions) {
+        if (id === socket.id) { activeSessions.delete(key); break; }
+      }
+
+      if (socket.id === currentRoom.hostId) {
+        io.to(socket.data.roomId).emit('host_left', { message: 'The host has left. The party is over! 🎬' });
+        rooms.delete(socket.data.roomId);
+      } else {
+        currentRoom.players = currentRoom.players.filter((p) => p.id !== socket.id);
+        io.to(socket.data.roomId).emit('player_left', {
+          playerId: socket.id,
+          players: currentRoom.players.map(publicPlayerRow),
+        });
+      }
+    }, gracePeriod);
+
+    disconnectTimers.set(socket.id, timer);
+  });
+
+  // ── Reconnect — cancel grace period if player comes back ─────────────────
+  socket.on('rejoin_room', ({ roomId, playerName, sessionKey }, cb) => {
+    // Cancel any pending disconnect timer for this player (by session key)
+    // Find the old socket that was disconnecting
+    for (const [oldSocketId, timer] of disconnectTimers) {
+      const oldSess = activeSessions.get(sessionKey);
+      if (oldSess === oldSocketId || sessionKey === socket.data.sessionKey) {
+        clearTimeout(timer);
+        disconnectTimers.delete(oldSocketId);
+        break;
+      }
     }
 
-    if (socket.id === room.hostId) {
-      io.to(socket.data.roomId).emit('host_left', { message: 'The host has left. The party is over! 🎬' });
-      rooms.delete(socket.data.roomId);
-    } else {
-      room.players = room.players.filter((p) => p.id !== socket.id);
-      io.to(socket.data.roomId).emit('player_left', {
-        playerId: socket.id,
-        players: room.players.map(publicPlayerRow),
-      });
+    // Just re-use join_room logic
+    const id   = sanitize(roomId, 6).toUpperCase();
+    const name = sanitize(playerName, 24) || 'Guest';
+    const room = rooms.get(id);
+
+    if (!room) return cb({ success: false, error: 'Room no longer exists.' });
+
+    // Remove old ghost entry if any
+    room.players = room.players.filter(p => activeSessions.get(sessionKey) !== p.id || p.id === socket.id);
+
+    // Update session
+    activeSessions.set(sessionKey, socket.id);
+    socket.data.sessionKey = sessionKey;
+
+    // Check if already in room under new socket ID
+    const existing = room.players.find(p => p.id === socket.id);
+    if (!existing) {
+      const player = mkPlayer(socket.id, name);
+      if (room.game && room.status === 'playing') {
+        player.playerGame = mkPlayerGame(room.game.movieName, room.game.hint);
+      }
+      room.players.push(player);
     }
+
+    socket.join(id);
+    socket.data.roomId      = id;
+    socket.data.playerName  = name;
+
+    io.to(id).emit('player_rejoined', {
+      playerName: name,
+      players: room.players.map(publicPlayerRow),
+    });
+
+    console.log(`[REJOIN] ${name} rejoined ${id}`);
+    cb({ success: true, room: publicRoom(room, socket.id) });
   });
 
   // ── Create room ───────────────────────────────────────────────────────────

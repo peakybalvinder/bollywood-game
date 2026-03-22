@@ -26,6 +26,9 @@ export default function App() {
   const [connAttempts, setConnAttempts] = useState(0);
   const [tabBlocked, setTabBlocked]   = useState(false);
   const [soloMode, setSoloMode]         = useState(null); // null | 'daily' | 'vs-computer'
+  // Ref so the socket reconnect handler can access current roomData without stale closure
+  const roomDataRef = useRef(null);
+  useEffect(() => { roomDataRef.current = roomData; }, [roomData]);
 
   // ── Toast ──────────────────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
@@ -112,7 +115,28 @@ export default function App() {
     socket.on('reconnect', () => {
       setConnected(true);
       setConnError(false);
-      showToast('Reconnected! 🎬', 'success', 2000);
+
+      // If we were in a game when the connection dropped, silently re-join the room.
+      // This handles iOS background disconnect — user comes back to find game intact.
+      const rd = roomDataRef.current;
+      if (rd?.room?.id && rd?.playerName) {
+        const sessionKey = `${rd.room.id}:${rd.playerName.toLowerCase()}`;
+        socket.emit('rejoin_room',
+          { roomId: rd.room.id, playerName: rd.playerName, sessionKey },
+          ({ success, room: updatedRoom }) => {
+            if (success && updatedRoom) {
+              // Update room data silently — no toast, game continues
+              setRoomData(prev => prev ? { ...prev, room: updatedRoom } : prev);
+              console.log('[FilmiPaheli] Silently rejoined room', rd.room.id);
+            } else {
+              // Room is gone (host actually left during the outage)
+              showToast('Reconnected, but the party ended while you were away.', 'info', 4000);
+            }
+          }
+        );
+      } else {
+        showToast('Reconnected! 🎬', 'success', 2000);
+      }
     });
 
     socket.on('host_left', ({ message }) => {

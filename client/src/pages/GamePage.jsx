@@ -27,6 +27,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
   const [lastGuessInfo, setLastGuessInfo] = useState(null);
   const [guessing, setGuessing]           = useState(false);
   const [unreadChat, setUnreadChat]       = useState(0);
+  const [showShare, setShowShare]         = useState(false);
 
   // Mobile tab state: 'game' | 'players' | 'chat'
   const [mobileTab, setMobileTab] = useState('game');
@@ -81,6 +82,11 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
     });
 
     socket.on('player_joined', ({ players: ps }) => setPlayers(ps));
+
+    socket.on('player_rejoined', ({ playerName: pn, players: ps }) => {
+      setPlayers(ps);
+      showToast(`${pn} reconnected 📱`, 'info', 2500);
+    });
 
     socket.on('player_left', ({ players: ps }) => {
       setPlayers(ps);
@@ -145,6 +151,7 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       socket.off('your_game_over');
       socket.off('player_joined');
       socket.off('player_left');
+      socket.off('player_rejoined');
       socket.off('host_transferred');
       socket.off('round_ended');
       socket.off('player_tab_hidden');
@@ -185,11 +192,36 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
     });
   }
 
-  function copyRoomLink() {
-    const link = `${window.location.origin}?room=${room.id}`;
-    navigator.clipboard.writeText(link).then(
-      () => showToast('Link copied! 🎟', 'success'),
-      () => showToast(`Room code: ${room.id}`, 'info')
+  const roomLink = `${window.location.origin}?room=${room.id}`;
+
+  async function handleShare() {
+    // Use native Web Share API on iOS/Android — gives proper share sheet
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Join my FilmiPaheli game!',
+          text: `Join my Bollywood movie guessing game! Room code: ${room.id}`,
+          url: roomLink,
+        });
+        return;
+      } catch (e) {
+        // User dismissed share sheet — no action needed
+        if (e.name === 'AbortError') return;
+      }
+    }
+    // Fallback: copy to clipboard
+    try {
+      await navigator.clipboard.writeText(roomLink);
+      showToast('Link copied to clipboard! 🎟', 'success');
+    } catch {
+      setShowShare(true); // Show manual copy modal as last resort
+    }
+  }
+
+  function copyRoomCode() {
+    navigator.clipboard.writeText(room.id).then(
+      () => showToast('Room code copied! 🎟', 'success'),
+      () => {}
     );
   }
 
@@ -211,11 +243,14 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
           <span className="font-display font-bold text-gold-400 text-base hidden sm:block">FilmiPaheli</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Room code chip — tap to open share options */}
           <button
-            onClick={copyRoomLink}
-            className="font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-2.5 py-1.5 text-xs tracking-widest hover:border-gold-700 transition-colors"
+            onClick={handleShare}
+            className="flex items-center gap-1.5 font-mono text-gold-500 bg-ink-700 border border-ink-600 rounded-lg px-2.5 py-1.5 text-xs tracking-widest hover:border-gold-700 active:scale-95 transition-all"
+            title="Share room"
           >
-            📋 {room.id}
+            <span>📤</span>
+            <span>{room.id}</span>
           </button>
           <button
             onClick={() => { if (window.confirm('Leave? Host leaving ends the game for everyone.')) onLeave(); }}
@@ -526,6 +561,63 @@ export default function GamePage({ initialRoom, playerName, onLeave, showToast }
       )}
       {showGameOver && (
         <GameOverOverlay game={game} players={players} isHost={isHost} onPlayAgain={handlePlayAgain} />
+      )}
+
+      {/* ── Share modal (fallback when Web Share API unavailable) ── */}
+      {showShare && (
+        <div className="modal-backdrop" onClick={() => setShowShare(false)}>
+          <div className="card-dark rounded-2xl p-6 w-full max-w-sm animate-slide-up" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display font-bold text-xl text-gold-400 mb-4 text-center">
+              📤 Invite Friends
+            </h3>
+
+            {/* Room code — big and tappable */}
+            <div className="bg-ink-900 rounded-xl p-4 text-center mb-4 border border-ink-700">
+              <p className="text-gold-700 text-xs uppercase tracking-widest mb-2">Room Code</p>
+              <button
+                onClick={copyRoomCode}
+                className="font-mono font-black text-4xl text-gold-400 tracking-[0.2em] hover:text-gold-300 active:scale-95 transition-all"
+              >
+                {room.id}
+              </button>
+              <p className="text-gold-800 text-xs mt-2">Tap to copy code</p>
+            </div>
+
+            {/* Link copy */}
+            <div className="bg-ink-900 rounded-xl p-3 mb-4 border border-ink-700 flex items-center gap-2">
+              <p className="text-gold-700 text-xs font-mono flex-1 truncate">{roomLink}</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(roomLink).then(() => {
+                    showToast('Link copied! 🎟', 'success');
+                    setShowShare(false);
+                  });
+                }}
+                className="btn-gold text-xs px-3 py-1.5 shrink-0"
+              >
+                Copy
+              </button>
+            </div>
+
+            {/* WhatsApp direct share */}
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(`Join my FilmiPaheli game! 🎬
+Room code: ${room.id}
+${roomLink}`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-center gap-2 bg-green-800 hover:bg-green-700 border border-green-600 text-green-200 rounded-xl py-3 font-body font-semibold text-sm transition-colors mb-3"
+              onClick={() => setShowShare(false)}
+            >
+              <span className="text-xl">💬</span>
+              Share via WhatsApp
+            </a>
+
+            <button onClick={() => setShowShare(false)} className="btn-ghost w-full py-2.5 text-sm">
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
