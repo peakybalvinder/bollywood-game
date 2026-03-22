@@ -11,19 +11,13 @@ console.log('[FilmiPaheli] Connecting to:', SOCKET_URL);
 export const socket = io(SOCKET_URL, {
   autoConnect: false,
 
-  // ── Transport: polling first so iOS Safari can always connect ─────────────
-  // WebSocket alone fails on iOS when the app goes to background mid-handshake.
-  // Polling survives background/foreground cycles; we upgrade once stable.
+  // Polling first — survives iOS background, Safari quirks
   transports: ['polling', 'websocket'],
-  upgrade: true,
 
-  // ── Timeouts: generous for iOS background throttling ─────────────────────
-  // iOS can suspend the JS thread for 10–30s when app is backgrounded.
-  // These values give the device time to wake up before we call it a disconnect.
-  timeout: 30000,
-  ackTimeout: 10000,
+  // Connection timeout only — no non-standard options
+  timeout: 20000,
 
-  // ── Reconnection: automatic, up to 20 attempts ───────────────────────────
+  // Reconnection
   reconnection: true,
   reconnectionAttempts: 20,
   reconnectionDelay: 1000,
@@ -33,13 +27,10 @@ export const socket = io(SOCKET_URL, {
   withCredentials: false,
 });
 
-// ── iOS Page Visibility handler ───────────────────────────────────────────────
-// When iOS resumes the app from background, force a reconnect if the socket
-// dropped while suspended. This fires before the user sees the "host left" toast.
+// iOS visibility handler — reconnect when app comes back to foreground
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') {
-      // Give iOS ~500ms to restore network, then reconnect if needed
       setTimeout(() => {
         if (!socket.connected) {
           console.log('[FilmiPaheli] Resuming from background — reconnecting…');

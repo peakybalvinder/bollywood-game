@@ -112,7 +112,7 @@ export default function App() {
       setConnAttempts(n => n + 1);
     });
 
-    socket.on('reconnect', () => {
+    socket.io.on('reconnect', () => {
       setConnected(true);
       setConnError(false);
 
@@ -155,7 +155,7 @@ export default function App() {
       socket.off('connect');
       socket.off('disconnect');
       socket.off('connect_error');
-      socket.off('reconnect');
+      socket.io.off('reconnect');
       socket.off('host_left');
       socket.off('inactivity_kick');
       socket.disconnect();
@@ -266,10 +266,10 @@ export default function App() {
     <div className="bg-cinema min-h-screen">
       {toast && <Toast type={toast.type} message={toast.message} />}
 
-      {!connected && !connError && (
+      {!connected && !connError && connAttempts > 0 && (
         <div className="fixed top-0 left-0 right-0 z-50 bg-ink-700 border-b border-gold-800 text-gold-400 text-xs text-center py-1.5 font-body flex items-center justify-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-pulse inline-block" />
-          Connecting…
+          Reconnecting…
         </div>
       )}
 
