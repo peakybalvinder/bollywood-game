@@ -74,7 +74,7 @@ const io = new Server(server, {
 // ── Socket connection rate limiting ───────────────────────────────────────────
 // Track connections per IP — max 5 simultaneous sockets per IP
 const ipConnections = new Map();
-const MAX_SOCKETS_PER_IP = 5;
+const MAX_SOCKETS_PER_IP = 15; // Generous — polling transport + reconnect attempts use multiple sockets
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const MAX_PLAYERS         = 5;
@@ -292,6 +292,8 @@ io.on('connection', (socket) => {
   // ── Per-IP connection limit ───────────────────────────────────────────────
   const ip = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim()
            || socket.handshake.address;
+  // Set ip on socket.data FIRST so disconnect handler can always decrement correctly
+  socket.data.ip = ip;
   const ipCount = (ipConnections.get(ip) || 0) + 1;
   ipConnections.set(ip, ipCount);
   if (ipCount > MAX_SOCKETS_PER_IP) {
@@ -299,7 +301,6 @@ io.on('connection', (socket) => {
     socket.disconnect(true);
     return;
   }
-  socket.data.ip = ip;
   console.log(`[+] ${socket.id} | IP: ${ip} | Connections from IP: ${ipCount}`);
 
   socket.on('disconnect', (reason) => {
