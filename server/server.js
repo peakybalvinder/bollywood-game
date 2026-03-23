@@ -16,7 +16,7 @@ const app = express();
 // ── Security headers ──────────────────────────────────────────────────────────
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false, // managed by frontend
+  contentSecurityPolicy: false,
 }));
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
@@ -37,20 +37,18 @@ function corsOrigin(origin, cb) {
 }
 
 app.use(cors({ origin: corsOrigin, methods: ['GET', 'POST', 'OPTIONS'], credentials: false }));
-app.use(express.json({ limit: '10kb' })); // prevent large payload attacks
+app.use(express.json({ limit: '10kb' }));
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-// Global: 200 requests per 15 minutes per IP
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later.' },
-  skip: (req) => req.path === '/health', // don't rate-limit health checks
+  skip: (req) => req.path === '/health',
 }));
 
-// Search endpoint: 60 requests per minute per IP (generous but prevents abuse)
 const searchLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -62,48 +60,42 @@ const io = new Server(server, {
   cors: { origin: corsOrigin, methods: ['GET', 'POST'], credentials: false },
   transports: ['polling', 'websocket'],
   allowUpgrades: true,
-  // iOS Safari kills WebSocket connections when app goes to background.
-  // Generous timeouts give the device time to resume before we declare disconnect.
-  pingInterval: 30000,    // ping every 30s
-  pingTimeout: 60000,     // wait 60s for pong before declaring disconnect
-  connectTimeout: 60000,  // 60s to establish initial connection
+  // Generous timeouts for iOS Safari which suspends connections in background
+  pingInterval: 30000,
+  pingTimeout:  60000,
+  connectTimeout: 60000,
   maxHttpBufferSize: 1e6,
   allowEIO3: true,
 });
 
-// ── Socket connection rate limiting ───────────────────────────────────────────
-// Track connections per IP — max 5 simultaneous sockets per IP
-const ipConnections = new Map();
-const MAX_SOCKETS_PER_IP = 15; // Generous — polling transport + reconnect attempts use multiple sockets
+// ── Per-IP socket limit ───────────────────────────────────────────────────────
+const ipConnections  = new Map();
+const MAX_SOCKETS_PER_IP = 15;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-const MAX_PLAYERS         = 5;
-const LIVES_WORD          = 'BOLLYWOOD';
-const INACTIVITY_MS       = 5 * 60 * 1000;
-const INACTIVITY_CHECK_MS = 30_000;
-const TMDB_API_KEY        = process.env.TMDB_API_KEY || '';
+// ── Constants ─────────────────────────────────────────────────────────────────
+const MAX_PLAYERS = 5;
+const LIVES_WORD  = 'BOLLYWOOD';
+const TMDB_API_KEY = process.env.TMDB_API_KEY || '';
 
-// ─── In-memory store ─────────────────────────────────────────────────────────
+// ── In-memory store ───────────────────────────────────────────────────────────
 const rooms = new Map();
 
 // ── Disconnect grace periods ──────────────────────────────────────────────────
-// When a socket disconnects (iOS background, network blip), we wait before
-// firing host_left / player_left. If they reconnect within the grace period,
-// nothing happens. This prevents false "host left" on mobile tab switching.
-const GRACE_PERIOD_MS = 30000; // 30 seconds
-const disconnectTimers = new Map(); // socketId → timer
+// On iOS, Safari drops the socket when the app backgrounds. We wait 30s before
+// treating it as a real disconnect, giving the device time to reconnect.
+const GRACE_PERIOD_MS  = 30000;
+const disconnectTimers = new Map(); // oldSocketId → timer
 
 // ── Single-session enforcement ────────────────────────────────────────────────
-// Maps playerName+roomId → socketId so we can kick duplicate sessions
-const activeSessions = new Map(); // key: `${roomId}:${playerName}` → socketId
+const activeSessions = new Map(); // `${roomId}:${playerName}` → socketId
 
-// ─── Input sanitisation ───────────────────────────────────────────────────────
+// ── Input sanitisation ────────────────────────────────────────────────────────
 function sanitize(str, maxLen = 50) {
   if (typeof str !== 'string') return '';
   return str.trim().slice(0, maxLen).replace(/[<>]/g, '');
 }
 
-// ─── Factories ───────────────────────────────────────────────────────────────
+// ── Factories ─────────────────────────────────────────────────────────────────
 function mkPlayer(socketId, name, isHost = false) {
   return {
     id: socketId,
@@ -111,10 +103,9 @@ function mkPlayer(socketId, name, isHost = false) {
     isHost,
     score: 0,
     guessedCorrectly: false,
-    lastActivity: Date.now(),
     playerGame: null,
-    // Anti-cheat tracking
-    tabHidden: false,
+    // Anti-cheat — independent of session management
+    tabHidden:      false,
     tabHiddenCount: 0,
     focusLostCount: 0,
   };
@@ -130,6 +121,7 @@ function mkRoom(roomId, roomName, maxPlayers, hostSocketId) {
     game: null,
     chat: [],
     status: 'waiting',
+    createdAt: Date.now(),
   };
 }
 
@@ -138,7 +130,7 @@ function mkPlayerGame(movieName, hint) {
     ? [...new Set(hint.toLowerCase().replace(/[^a-z]/g, '').split(''))]
     : [];
   const blanks = movieName.split('').map((ch) => {
-    // Spaces and special characters (: - . ' ! , etc.) are auto-revealed — only letters are blanks
+    // Only a–z letters are blanks; numbers, spaces, special chars shown as-is
     if (!/[a-zA-Z]/.test(ch)) return ch;
     if (hintLetters.includes(ch.toLowerCase())) return ch;
     return '_';
@@ -155,7 +147,7 @@ function mkPlayerGame(movieName, hint) {
   };
 }
 
-// ─── Game logic ───────────────────────────────────────────────────────────────
+// ── Game logic ────────────────────────────────────────────────────────────────
 function processGuess(pg, letter) {
   const l = letter.toLowerCase();
   if (pg.guessedLetters.includes(l)) return { alreadyGuessed: true };
@@ -171,16 +163,17 @@ function processGuess(pg, letter) {
   return { correct: false };
 }
 
-function isWon(pg) {
-  // Win only when all letter blanks are revealed (special chars are always revealed)
-  return !pg.blanks.includes('_');
-}
+function isWon(pg) { return !pg.blanks.includes('_'); }
 
-// ─── Serialisers ─────────────────────────────────────────────────────────────
+// ── Serialisers ───────────────────────────────────────────────────────────────
 function publicPlayerGame(pg, movieName) {
   const g = {
-    blanks: pg.blanks, guessedLetters: pg.guessedLetters, wrongLetters: pg.wrongLetters,
-    livesLeft: pg.livesLeft, livesWord: LIVES_WORD, status: pg.status,
+    blanks: pg.blanks,
+    guessedLetters: pg.guessedLetters,
+    wrongLetters: pg.wrongLetters,
+    livesLeft: pg.livesLeft,
+    livesWord: LIVES_WORD,
+    status: pg.status,
     hint: pg.hint || null,
   };
   if (pg.status !== 'playing') g.movieName = movieName;
@@ -191,14 +184,14 @@ function publicPlayerRow(p) {
   return {
     id: p.id, name: p.name, isHost: p.isHost, score: p.score,
     guessedCorrectly: p.guessedCorrectly,
-    livesLeft:    p.playerGame ? p.playerGame.livesLeft             : null,
-    gameStatus:   p.playerGame ? p.playerGame.status                : null,
-    guessedCount: p.playerGame ? p.playerGame.guessedLetters.length : 0,
-    blanks:       p.playerGame ? p.playerGame.blanks                : null,
-    lastLetter:   p.playerGame ? p.playerGame.lastLetter            : null,
-    lastLetterCorrect: p.playerGame ? p.playerGame.lastLetterCorrect : null,
-    wrongLetters: p.playerGame ? p.playerGame.wrongLetters          : [],
-    // Anti-cheat info visible to host
+    livesLeft:         p.playerGame ? p.playerGame.livesLeft              : null,
+    gameStatus:        p.playerGame ? p.playerGame.status                 : null,
+    guessedCount:      p.playerGame ? p.playerGame.guessedLetters.length  : 0,
+    blanks:            p.playerGame ? p.playerGame.blanks                 : null,
+    lastLetter:        p.playerGame ? p.playerGame.lastLetter             : null,
+    lastLetterCorrect: p.playerGame ? p.playerGame.lastLetterCorrect      : null,
+    wrongLetters:      p.playerGame ? p.playerGame.wrongLetters           : [],
+    // Anti-cheat — visible to host only (filtered client-side)
     tabHidden:      p.tabHidden,
     tabHiddenCount: p.tabHiddenCount,
     focusLostCount: p.focusLostCount,
@@ -217,23 +210,24 @@ function publicRoom(room, forPlayerId) {
   };
 }
 
-// ─── Inactivity watchdog ─────────────────────────────────────────────────────
+// ── Room cleanup — remove stale empty rooms every hour ────────────────────────
+// Replaces the inactivity watchdog. We don't kick players — we only clean up
+// rooms that have been sitting empty for over 2 hours (e.g. everyone closed browser).
 setInterval(() => {
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
   const now = Date.now();
-  for (const [, room] of rooms) {
-    for (const player of [...room.players]) {
-      if (now - player.lastActivity > INACTIVITY_MS) {
-        const sock = io.sockets.sockets.get(player.id);
-        if (sock) {
-          sock.emit('inactivity_kick', { message: 'You were removed due to 5 minutes of inactivity.' });
-          sock.disconnect(true);
-        }
-      }
+  let cleaned = 0;
+  for (const [roomId, room] of rooms) {
+    const allGone = room.players.every(p => !io.sockets.sockets.has(p.id));
+    if (allGone && now - room.createdAt > TWO_HOURS) {
+      rooms.delete(roomId);
+      cleaned++;
     }
   }
-}, INACTIVITY_CHECK_MS);
+  if (cleaned > 0) console.log(`[CLEANUP] Removed ${cleaned} stale empty rooms`);
+}, 60 * 60 * 1000); // every hour
 
-// ─── TMDB / iTunes search ─────────────────────────────────────────────────────
+// ── TMDB / iTunes search ──────────────────────────────────────────────────────
 function isBearerToken(key) { return key && key.length > 50; }
 
 async function searchTMDB(q) {
@@ -248,14 +242,16 @@ async function searchTMDB(q) {
   const response = await fetch(url, { headers });
   const data = await response.json();
   if (data.status_message) { console.error('[TMDB]', data.status_message); return null; }
-  return (data.results || []).slice(0, 10).map((m) => ({ title: m.title, year: m.release_date ? m.release_date.slice(0, 4) : '' }));
+  return (data.results || []).slice(0, 10).map((m) => ({
+    title: m.title, year: m.release_date ? m.release_date.slice(0, 4) : '',
+  }));
 }
 
 app.get('/api/search-status', async (req, res) => {
   if (!TMDB_API_KEY) return res.json({ configured: false, source: 'itunes-fallback' });
   try {
     const results = await searchTMDB('Sholay');
-    if (!results) return res.json({ configured: true, working: false, message: 'Key error' });
+    if (!results) return res.json({ configured: true, working: false });
     return res.json({ configured: true, working: true, source: 'tmdb', testResults: results.slice(0, 3) });
   } catch (err) {
     return res.json({ configured: true, working: false, error: err.message });
@@ -287,162 +283,137 @@ app.get('/api/search', searchLimiter, async (req, res) => {
   }
 });
 
-// ─── Socket.IO ───────────────────────────────────────────────────────────────
+// ── Socket.IO ─────────────────────────────────────────────────────────────────
 io.on('connection', (socket) => {
-  // ── Per-IP connection limit ───────────────────────────────────────────────
+  // Per-IP connection limit — set socket.data.ip first so disconnect always decrements
   const ip = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim()
            || socket.handshake.address;
-  // Set ip on socket.data FIRST so disconnect handler can always decrement correctly
   socket.data.ip = ip;
   const ipCount = (ipConnections.get(ip) || 0) + 1;
   ipConnections.set(ip, ipCount);
+
   if (ipCount > MAX_SOCKETS_PER_IP) {
     socket.emit('error_msg', { message: 'Too many connections from your device.' });
     socket.disconnect(true);
     return;
   }
-  console.log(`[+] ${socket.id} | IP: ${ip} | Connections from IP: ${ipCount}`);
+  console.log(`[+] ${socket.id} | IP: ${ip} | from IP: ${ipCount}`);
 
+  // ── Disconnect with grace period ───────────────────────────────────────────
   socket.on('disconnect', (reason) => {
-    // Decrease IP connection count
-    const count = Math.max(0, (ipConnections.get(socket.data.ip) || 1) - 1);
-    if (count === 0) ipConnections.delete(socket.data.ip);
-    else ipConnections.set(socket.data.ip, count);
+    // Always decrement IP count
+    const cnt = Math.max(0, (ipConnections.get(socket.data.ip) || 1) - 1);
+    if (cnt === 0) ipConnections.delete(socket.data.ip);
+    else ipConnections.set(socket.data.ip, cnt);
 
     console.log(`[-] ${socket.id} | reason: ${reason}`);
     const room = rooms.get(socket.data.roomId);
     if (!room) return;
 
-    // On iOS, when user switches apps or the screen locks, Safari drops the
-    // connection but the user hasn't intentionally left. We wait 30 seconds
-    // before actually removing them, giving time for reconnection.
-    const gracePeriod = reason === 'transport close' || reason === 'ping timeout' || reason === 'transport error'
-      ? GRACE_PERIOD_MS
-      : 0; // Intentional disconnect (browser closed) — act immediately
+    // Transport errors = likely iOS background — give 30s grace period
+    const grace = (reason === 'transport close' || reason === 'ping timeout' || reason === 'transport error')
+      ? GRACE_PERIOD_MS : 0;
 
     const timer = setTimeout(() => {
       disconnectTimers.delete(socket.id);
+      const r = rooms.get(socket.data.roomId);
+      if (!r) return;
+      // Only act if this socket ID is still in the room (not replaced by rejoin)
+      const stillThere = r.players.find(p => p.id === socket.id);
+      if (!stillThere) return;
 
-      // Check if player already reconnected (socket.data.roomId may have changed)
-      const currentRoom = rooms.get(socket.data.roomId);
-      if (!currentRoom) return;
-
-      // Check if this socket is still the active one in the room
-      const stillInRoom = currentRoom.players.find(p => p.id === socket.id);
-      if (!stillInRoom) return; // Already replaced by reconnect
-
-      // Clean up session key
-      for (const [key, id] of activeSessions) {
-        if (id === socket.id) { activeSessions.delete(key); break; }
+      // Clean session
+      for (const [k, v] of activeSessions) {
+        if (v === socket.id) { activeSessions.delete(k); break; }
       }
 
-      if (socket.id === currentRoom.hostId) {
+      if (socket.id === r.hostId) {
         io.to(socket.data.roomId).emit('host_left', { message: 'The host has left. The party is over! 🎬' });
         rooms.delete(socket.data.roomId);
       } else {
-        currentRoom.players = currentRoom.players.filter((p) => p.id !== socket.id);
+        r.players = r.players.filter(p => p.id !== socket.id);
         io.to(socket.data.roomId).emit('player_left', {
           playerId: socket.id,
-          players: currentRoom.players.map(publicPlayerRow),
+          players: r.players.map(publicPlayerRow),
         });
       }
-    }, gracePeriod);
+    }, grace);
 
     disconnectTimers.set(socket.id, timer);
   });
 
-  // ── Rejoin room after reconnect ─────────────────────────────────────────────
-  // Called by the client after socket reconnects (iOS background, network blip).
-  // Strategy: find the old player by their previous socket ID, update it IN PLACE
-  // (preserving isHost, playerGame, score), cancel grace period timer.
+  // ── Rejoin room after reconnect ────────────────────────────────────────────
+  // Finds the old player by their previous socket ID and updates in-place,
+  // preserving isHost, score, playerGame and all game state.
   socket.on('rejoin_room', ({ roomId, playerName, sessionKey }, cb) => {
     const id   = sanitize(roomId, 6).toUpperCase();
     const name = sanitize(playerName, 24) || 'Guest';
     const room = rooms.get(id);
-
     if (!room) return cb({ success: false, error: 'Room no longer exists.' });
 
-    // Find the old socket ID for this session
     const oldSocketId = activeSessions.get(sessionKey);
 
-    // ── Cancel the grace period timer for the old socket ─────────────────────
+    // Cancel grace period — player is back
     if (oldSocketId && disconnectTimers.has(oldSocketId)) {
       clearTimeout(disconnectTimers.get(oldSocketId));
       disconnectTimers.delete(oldSocketId);
-      console.log(`[REJOIN] Cancelled grace timer for ${oldSocketId}`);
+      console.log(`[REJOIN] Grace timer cancelled for ${oldSocketId}`);
     }
 
-    // ── Update session map ────────────────────────────────────────────────────
     activeSessions.set(sessionKey, socket.id);
-    socket.data.sessionKey  = sessionKey;
-    socket.data.roomId      = id;
-    socket.data.playerName  = name;
+    socket.data.sessionKey = sessionKey;
+    socket.data.roomId     = id;
+    socket.data.playerName = name;
 
-    // ── Find and update the old player entry IN PLACE ─────────────────────────
-    // This preserves: isHost, score, playerGame, guessedCorrectly
+    // Update old player entry IN PLACE — preserves all state including isHost
     let player = room.players.find(p => p.id === oldSocketId);
-
     if (player) {
-      // Update socket ID in-place — player keeps all their state
-      player.id           = socket.id;
-      player.lastActivity = Date.now();
-
-      // If this player was the host, update room.hostId too
-      if (room.hostId === oldSocketId) {
-        room.hostId = socket.id;
-        console.log(`[REJOIN] Host socket updated: ${oldSocketId} → ${socket.id}`);
-      }
+      player.id = socket.id;
+      // Update hostId if this was the host
+      if (room.hostId === oldSocketId) room.hostId = socket.id;
     } else {
-      // Player entry was already removed (grace period fired before rejoin)
-      // Re-add them as a fresh player
+      // Grace period already fired — re-add as fresh player
       player = mkPlayer(socket.id, name);
       if (room.game && room.status === 'playing') {
         player.playerGame = mkPlayerGame(room.game.movieName, room.game.hint);
       }
       room.players.push(player);
-      console.log(`[REJOIN] Player ${name} re-added after grace period expired`);
     }
 
     socket.join(id);
-
-    // Notify everyone that player reconnected (small toast, not disruptive)
-    io.to(id).emit('player_rejoined', {
-      playerName: name,
-      players:    room.players.map(publicPlayerRow),
-    });
-
-    console.log(`[REJOIN] ${name} (${socket.id}) rejoined room ${id} | hostId: ${room.hostId}`);
+    io.to(id).emit('player_rejoined', { playerName: name, players: room.players.map(publicPlayerRow) });
+    console.log(`[REJOIN] ${name} (${socket.id}) rejoined ${id} | hostId: ${room.hostId}`);
     cb({ success: true, room: publicRoom(room, socket.id) });
   });
 
-  // ── Create room ───────────────────────────────────────────────────────────
+  // ── Create room ────────────────────────────────────────────────────────────
   socket.on('create_room', ({ roomName, maxPlayers, playerName }, cb) => {
     const name   = sanitize(playerName, 24) || 'Host';
-    const rName  = sanitize(roomName, 40) || 'FilmiPaheli Night';
+    const rName  = sanitize(roomName, 40)   || 'FilmiPaheli Night';
     const roomId = uuidv4().slice(0, 6).toUpperCase();
     const room   = mkRoom(roomId, rName, maxPlayers || 2, socket.id);
     const player = mkPlayer(socket.id, name, true);
     room.players.push(player);
     rooms.set(roomId, room);
     socket.join(roomId);
-    socket.data.roomId = roomId;
+    socket.data.roomId     = roomId;
     socket.data.playerName = name;
     console.log(`[ROOM] ${roomId} created by ${name}`);
     cb({ success: true, roomId, room: publicRoom(room, socket.id) });
   });
 
-  // ── Join room ─────────────────────────────────────────────────────────────
+  // ── Join room ──────────────────────────────────────────────────────────────
   socket.on('join_room', ({ roomId, playerName }, cb) => {
     const id   = sanitize(roomId, 6).toUpperCase();
     const name = sanitize(playerName, 24) || 'Guest';
     const room = rooms.get(id);
 
-    if (!room) return cb({ success: false, error: 'Room not found. Check the code and try again.' });
+    if (!room)   return cb({ success: false, error: 'Room not found. Check the code and try again.' });
     if (room.status === 'ended') return cb({ success: false, error: 'This game has already ended.' });
     if (room.players.length >= room.maxPlayers) return cb({ success: false, error: `Room is full (${room.maxPlayers} players max).` });
 
-    // ── Single session enforcement ──────────────────────────────────────────
-    const sessionKey = `${id}:${name.toLowerCase()}`;
+    // Single session enforcement
+    const sessionKey      = `${id}:${name.toLowerCase()}`;
     const existingSocketId = activeSessions.get(sessionKey);
     if (existingSocketId) {
       const existingSock = io.sockets.sockets.get(existingSocketId);
@@ -461,7 +432,7 @@ io.on('connection', (socket) => {
     }
     room.players.push(player);
     socket.join(id);
-    socket.data.roomId = id;
+    socket.data.roomId     = id;
     socket.data.playerName = name;
 
     io.to(id).emit('player_joined', { player: publicPlayerRow(player), players: room.players.map(publicPlayerRow) });
@@ -469,7 +440,7 @@ io.on('connection', (socket) => {
     cb({ success: true, room: publicRoom(room, socket.id) });
   });
 
-  // ── Start game ────────────────────────────────────────────────────────────
+  // ── Start game ─────────────────────────────────────────────────────────────
   socket.on('start_game', ({ movieName, hint }, cb) => {
     const room = rooms.get(socket.data.roomId);
     if (!room)                     return cb({ success: false, error: 'Room not found.' });
@@ -502,7 +473,7 @@ io.on('connection', (socket) => {
     cb({ success: true });
   });
 
-  // ── Guess a letter ────────────────────────────────────────────────────────
+  // ── Guess a letter ─────────────────────────────────────────────────────────
   socket.on('guess_letter', ({ letter }, cb) => {
     const room   = rooms.get(socket.data.roomId);
     const player = room?.players.find((p) => p.id === socket.id);
@@ -512,7 +483,6 @@ io.on('connection', (socket) => {
     if (player.playerGame.status !== 'playing') return cb({ success: false, error: 'Your game is over.' });
     if (!letter || letter.length !== 1 || !/[a-zA-Z]/.test(letter)) return cb({ success: false, error: 'Invalid letter.' });
 
-    player.lastActivity = Date.now();
     const result = processGuess(player.playerGame, letter);
     if (result.alreadyGuessed) return cb({ success: false, error: 'Already guessed.' });
 
@@ -540,7 +510,7 @@ io.on('connection', (socket) => {
     cb({ success: true });
   });
 
-  // ── Anti-cheat: tab visibility ────────────────────────────────────────────
+  // ── Anti-cheat: tab visibility (independent of session management) ─────────
   socket.on('tab_hidden', () => {
     const room   = rooms.get(socket.data.roomId);
     const player = room?.players.find((p) => p.id === socket.id);
@@ -548,9 +518,7 @@ io.on('connection', (socket) => {
 
     player.tabHidden = true;
     player.tabHiddenCount += 1;
-    player.lastActivity = Date.now();
 
-    // Notify host privately
     const hostSock = io.sockets.sockets.get(room.hostId);
     if (hostSock) {
       hostSock.emit('player_tab_hidden', {
@@ -560,7 +528,6 @@ io.on('connection', (socket) => {
         players: room.players.map(publicPlayerRow),
       });
     }
-    // Also broadcast updated player rows so everyone's UI can update
     io.to(socket.data.roomId).emit('players_progress', { players: room.players.map(publicPlayerRow) });
   });
 
@@ -569,7 +536,6 @@ io.on('connection', (socket) => {
     const player = room?.players.find((p) => p.id === socket.id);
     if (!player || player.isHost) return;
     player.tabHidden = false;
-    player.lastActivity = Date.now();
     io.to(socket.data.roomId).emit('players_progress', { players: room.players.map(publicPlayerRow) });
   });
 
@@ -578,7 +544,6 @@ io.on('connection', (socket) => {
     const player = room?.players.find((p) => p.id === socket.id);
     if (!player || player.isHost) return;
     player.focusLostCount += 1;
-    player.lastActivity = Date.now();
     const hostSock = io.sockets.sockets.get(room.hostId);
     if (hostSock) {
       hostSock.emit('player_focus_lost', {
@@ -590,7 +555,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── Transfer host ─────────────────────────────────────────────────────────
+  // ── Transfer host ──────────────────────────────────────────────────────────
   socket.on('transfer_host', ({ newHostId }, cb) => {
     const room = rooms.get(socket.data.roomId);
     if (!room || room.hostId !== socket.id) return cb({ success: false, error: 'Only the host can transfer.' });
@@ -601,18 +566,13 @@ io.on('connection', (socket) => {
     room.hostId    = newHostId;
     oldHost.isHost = false;
     newHost.isHost = true;
-
-    // Clear the new host's playerGame — they become spectator
     newHost.playerGame = null;
 
-    // If a game is in progress, end it cleanly so the new host can start fresh
     const hadActiveGame = room.game !== null;
     if (hadActiveGame) {
-      // Reveal movie name to everyone and reset round
       const movieName = room.game.movieName;
       room.game   = null;
       room.status = 'waiting';
-      // Emit round_ended so all clients reset their game state
       io.to(socket.data.roomId).emit('round_ended', {
         movieName,
         reason:  'Host role transferred — current round ended.',
@@ -622,41 +582,41 @@ io.on('connection', (socket) => {
 
     io.to(socket.data.roomId).emit('host_transferred', {
       newHostId,
-      oldHostId:      socket.id,
-      players:        room.players.map(publicPlayerRow),
+      oldHostId: socket.id,
+      players: room.players.map(publicPlayerRow),
       hadActiveGame,
     });
     cb({ success: true });
   });
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
+  // ── Chat ───────────────────────────────────────────────────────────────────
   socket.on('chat_message', ({ message }) => {
     const room   = rooms.get(socket.data.roomId);
     const player = room?.players.find((p) => p.id === socket.id);
     if (!room || !player) return;
     const text = sanitize(message, 300);
     if (!text) return;
-    player.lastActivity = Date.now();
-    const msg = { id: uuidv4().slice(0, 8), playerId: socket.id, playerName: player.name, message: text, timestamp: Date.now() };
+    const msg = {
+      id: uuidv4().slice(0, 8),
+      playerId: socket.id,
+      playerName: player.name,
+      message: text,
+      timestamp: Date.now(),
+    };
     room.chat.push(msg);
     io.to(socket.data.roomId).emit('chat_message', msg);
   });
-
-  // ── Activity ping ─────────────────────────────────────────────────────────
-  socket.on('activity_ping', () => {
-    const room   = rooms.get(socket.data.roomId);
-    const player = room?.players.find((p) => p.id === socket.id);
-    if (player) player.lastActivity = Date.now();
-  });
 });
 
-// ─── Health ───────────────────────────────────────────────────────────────────
-app.get('/health', (_, res) => res.json({ status: 'ok', rooms: rooms.size, uptime: Math.floor(process.uptime()) }));
+// ── Health ────────────────────────────────────────────────────────────────────
+app.get('/health', (_, res) => res.json({
+  status: 'ok',
+  rooms: rooms.size,
+  uptime: Math.floor(process.uptime()),
+  connections: io.engine.clientsCount,
+}));
 
-// ─── 404 catch-all ───────────────────────────────────────────────────────────
 app.use((_, res) => res.status(404).json({ error: 'Not found' }));
-
-// ─── Global error handler ─────────────────────────────────────────────────────
 app.use((err, req, res, _next) => {
   console.error('[Error]', err.message);
   res.status(500).json({ error: 'Internal server error' });

@@ -152,28 +152,16 @@ export default function App() {
       setRoomData(null);
     });
 
-    socket.on('inactivity_kick', ({ message }) => {
-      showToast(message || 'Removed due to inactivity.', 'error', 5000);
-      setView('dashboard');
-      setRoomData(null);
-    });
-
     return () => {
       socket.off('connect');
       socket.off('disconnect');
       socket.off('connect_error');
       socket.io.off('reconnect');
       socket.off('host_left');
-      socket.off('inactivity_kick');
       socket.disconnect();
     };
   }, [showToast]);
 
-  useEffect(() => {
-    if (view !== 'game') return;
-    const id = setInterval(() => socket.emit('activity_ping'), 60_000);
-    return () => clearInterval(id);
-  }, [view]);
 
   function handleRoomReady(data) {
     setRoomData(data);
