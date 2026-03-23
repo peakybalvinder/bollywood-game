@@ -236,10 +236,11 @@ export default function MovieSearchModal({ onSelectMovie, onClose }) {
           {/* Hint letters */}
           <div>
             <label className="block text-gold-600 text-xs uppercase tracking-widest mb-1">
-              Hint Letters <span className="normal-case text-gold-800">(optional)</span>
+              Hint Letters <span className="normal-case text-gold-800">(optional — letters only)</span>
             </label>
             <p className="text-gold-800 text-xs mb-2">
-              Type letters to pre-reveal them. e.g. <span className="font-mono text-gold-600">AK</span> reveals all A's and K's.
+              Pre-reveal letters. e.g. <span className="font-mono text-gold-600">AK</span> reveals all A's and K's.
+              Numbers are always guessable and cannot be hinted.
             </p>
             <input
               className={`input-dark uppercase font-mono text-xl tracking-widest ${hintError ? 'border-red-600' : ''}`}

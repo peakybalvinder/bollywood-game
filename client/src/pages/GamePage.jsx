@@ -103,7 +103,11 @@ export default function GamePage({ initialRoom, playerName, isHostOverride, onLe
 
     socket.on('player_rejoined', ({ playerName: pn, players: ps }) => {
       setPlayers(ps);
-      showToast(`${pn} reconnected 📱`, 'info', 2500);
+      // Only show toast to OTHER players, not to the person who reconnected
+      // (they already know they came back — no need to announce it to themselves)
+      if (pn !== playerName) {
+        showToast(`${pn} reconnected 📱`, 'info', 2000);
+      }
     });
 
     socket.on('player_left', ({ players: ps }) => {

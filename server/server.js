@@ -130,8 +130,9 @@ function mkPlayerGame(movieName, hint) {
     ? [...new Set(hint.toLowerCase().replace(/[^a-z]/g, '').split(''))]
     : [];
   const blanks = movieName.split('').map((ch) => {
-    // Only a–z letters are blanks; numbers, spaces, special chars shown as-is
-    if (!/[a-zA-Z]/.test(ch)) return ch;
+    // a–z letters AND 0–9 digits are guessable blanks
+    // spaces and special chars (: - . ' !) are auto-revealed as-is
+    if (!/[a-zA-Z0-9]/.test(ch)) return ch;
     if (hintLetters.includes(ch.toLowerCase())) return ch;
     return '_';
   });
@@ -365,14 +366,33 @@ io.on('connection', (socket) => {
     socket.data.roomId     = id;
     socket.data.playerName = name;
 
-    // Update old player entry IN PLACE — preserves all state including isHost
-    let player = room.players.find(p => p.id === oldSocketId);
+    // ── Find the existing player entry and update in-place ─────────────────
+    // Primary:  find by old socket ID (normal reconnect path)
+    // Fallback: find by name (handles edge case where sessionKey wasn't stored)
+    let player = room.players.find(p => p.id === oldSocketId)
+              || room.players.find(p => p.name.toLowerCase() === name.toLowerCase() && p.id !== socket.id);
+
     if (player) {
+      const wasHost    = room.hostId === player.id;
+      const oldId      = player.id;
+
+      // Update socket ID in-place — ALL existing state is preserved
       player.id = socket.id;
-      // Update hostId if this was the host
-      if (room.hostId === oldSocketId) room.hostId = socket.id;
+
+      // Also cancel any grace timer for the old ID (covers name-based match)
+      if (disconnectTimers.has(oldId)) {
+        clearTimeout(disconnectTimers.get(oldId));
+        disconnectTimers.delete(oldId);
+      }
+
+      // Keep room.hostId in sync
+      if (wasHost) room.hostId = socket.id;
+
+      // Remove any stale duplicate entries (same name, different socket)
+      room.players = room.players.filter(p => p.name.toLowerCase() !== name.toLowerCase() || p.id === socket.id);
+
     } else {
-      // Grace period already fired — re-add as fresh player
+      // Player genuinely gone (grace period already fired) — re-add fresh
       player = mkPlayer(socket.id, name);
       if (room.game && room.status === 'playing') {
         player.playerGame = mkPlayerGame(room.game.movieName, room.game.hint);
@@ -398,6 +418,14 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.data.roomId     = roomId;
     socket.data.playerName = name;
+
+    // ── Register session so rejoin_room can find the host on reconnect ────────
+    // Without this, the host's sessionKey is never stored, causing rejoin to
+    // create a duplicate player entry instead of updating the existing one.
+    const sessionKey = `${roomId}:${name.toLowerCase()}`;
+    activeSessions.set(sessionKey, socket.id);
+    socket.data.sessionKey = sessionKey;
+
     console.log(`[ROOM] ${roomId} created by ${name}`);
     cb({ success: true, roomId, room: publicRoom(room, socket.id) });
   });
@@ -481,7 +509,7 @@ io.on('connection', (socket) => {
     if (!room || !room.game)                    return cb({ success: false, error: 'No active game.' });
     if (!player || !player.playerGame)          return cb({ success: false, error: 'Not a player.' });
     if (player.playerGame.status !== 'playing') return cb({ success: false, error: 'Your game is over.' });
-    if (!letter || letter.length !== 1 || !/[a-zA-Z]/.test(letter)) return cb({ success: false, error: 'Invalid letter.' });
+    if (!letter || letter.length !== 1 || !/[a-zA-Z0-9]/.test(letter)) return cb({ success: false, error: 'Invalid character.' });
 
     const result = processGuess(player.playerGame, letter);
     if (result.alreadyGuessed) return cb({ success: false, error: 'Already guessed.' });
