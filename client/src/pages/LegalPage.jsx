@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { navigate } from '../router';
 import Footer from '../components/Footer';
 
 /**

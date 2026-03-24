@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { setPageMeta } from '../router';
 import LegalPage, { Section, P, Ul, Highlight } from './LegalPage';
 
 export default function PrivacyPolicy({ onBack }) {
+  useEffect(() => {
+    setPageMeta({
+      title: 'Privacy Policy — FilmiPaheli',
+      description: 'Privacy policy for FilmiPaheli.com. We collect no personal data. Learn how session data and Google AdSense cookies are handled.',
+      canonical: 'https://www.filmipaheli.com/privacy',
+    });
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <LegalPage title="Privacy Policy" onBack={onBack}>
 

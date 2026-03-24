@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { setPageMeta } from '../router';
 import LegalPage, { Section, P, Ul, Highlight } from './LegalPage';
 
 export default function TermsAndConditions({ onBack }) {
+  useEffect(() => {
+    setPageMeta({
+      title: 'Terms & Conditions — FilmiPaheli',
+      description: 'Terms and conditions for using FilmiPaheli.com, the free Bollywood movie guessing game.',
+      canonical: 'https://www.filmipaheli.com/terms',
+    });
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <LegalPage title="Terms & Conditions" onBack={onBack}>
 

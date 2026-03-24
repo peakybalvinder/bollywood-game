@@ -1,7 +1,17 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { setPageMeta } from '../router';
 import LegalPage, { Section, P, Ul, Highlight } from './LegalPage';
 
 export default function Disclaimer({ onBack }) {
+  useEffect(() => {
+    setPageMeta({
+      title: 'Disclaimer — FilmiPaheli',
+      description: 'Disclaimer for FilmiPaheli.com. Entertainment purposes only. No guarantee of service availability.',
+      canonical: 'https://www.filmipaheli.com/disclaimer',
+    });
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <LegalPage title="Disclaimer" onBack={onBack}>
 

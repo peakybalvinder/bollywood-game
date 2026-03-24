@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import socket from './socket';
+import { navigate, getPath, setPageMeta } from './router';
 import Dashboard         from './components/Dashboard';
 import CreatePartyModal  from './components/CreatePartyModal';
 import JoinPartyModal    from './components/JoinPartyModal';
@@ -13,6 +14,22 @@ import Disclaimer        from './pages/Disclaimer';
 import HowToPlay         from './pages/HowToPlay';
 import DailyChallenge    from './pages/DailyChallenge';
 import VsComputer        from './pages/VsComputer';
+import Blog              from './pages/Blog';
+import BlogPost          from './pages/BlogPost';
+
+// ── Path → component mapping ──────────────────────────────────────────────────
+function resolvePage(path) {
+  if (path === '/faq')          return 'faq';
+  if (path === '/how-to-play')  return 'howtoplay';
+  if (path === '/terms')        return 'terms';
+  if (path === '/privacy')      return 'privacy';
+  if (path === '/disclaimer')   return 'disclaimer';
+  if (path === '/daily')        return 'daily';
+  if (path === '/vs-computer')  return 'vscomputer';
+  if (path === '/blog')         return 'blog';
+  if (path.startsWith('/blog/')) return 'blogpost';
+  return null; // dashboard
+}
 
 export default function App() {
   const [view, setView]               = useState('dashboard');
@@ -25,56 +42,34 @@ export default function App() {
   const [connError, setConnError]     = useState(false);
   const [connAttempts, setConnAttempts] = useState(0);
   const [tabBlocked, setTabBlocked]   = useState(false);
-  const [soloMode, setSoloMode]         = useState(null); // null | 'daily' | 'vs-computer'
-  // Ref so the socket reconnect handler can access current roomData without stale closure
   const roomDataRef = useRef(null);
   useEffect(() => { roomDataRef.current = roomData; }, [roomData]);
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
+  // ── Path-based routing ────────────────────────────────────────────────────
+  const [currentPath, setCurrentPath] = useState(getPath);
+
+  useEffect(() => {
+    function onPop() { setCurrentPath(getPath()); }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  const page = resolvePage(currentPath);
+
+  function goHome() {
+    navigate('/');
+    setCurrentPath('/');
+  }
+
+  // ── Toast ─────────────────────────────────────────────────────────────────
   const showToast = useCallback((message, type = 'info', duration = 3500) => {
     setToast({ message, type });
     const t = setTimeout(() => setToast(null), duration);
     return () => clearTimeout(t);
   }, []);
 
-  // ── Single tab enforcement — persistent block ──────────────────────────────
-  useSingleSession(useCallback(() => {
-    setTabBlocked(true);
-  }, []));
-
-  // ── Hash routing ──────────────────────────────────────────────────────────
-  const [legalPage, setLegalPage] = useState(() => {
-    const h = window.location.hash;
-    if (h === '#faq')        return 'faq';
-    if (h === '#terms')      return 'terms';
-    if (h === '#privacy')    return 'privacy';
-    if (h === '#disclaimer') return 'disclaimer';
-    if (h === '#how-to-play') return 'howtoplay';
-    if (h === '#daily')       return 'daily';
-    if (h === '#vs-computer') return 'vscomputer';
-    return null;
-  });
-
-  useEffect(() => {
-    function onHashChange() {
-      const h = window.location.hash;
-      if (h === '#faq')          setLegalPage('faq');
-      else if (h === '#terms')        setLegalPage('terms');
-      else if (h === '#privacy')      setLegalPage('privacy');
-      else if (h === '#disclaimer')   setLegalPage('disclaimer');
-      else if (h === '#how-to-play')  setLegalPage('howtoplay');
-      else if (h === '#daily')           setLegalPage('daily');
-      else if (h === '#vs-computer')     setLegalPage('vscomputer');
-      else setLegalPage(null);
-    }
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
-
-  function goBack() {
-    window.location.hash = '';
-    setLegalPage(null);
-  }
+  // ── Single tab enforcement ────────────────────────────────────────────────
+  useSingleSession(useCallback(() => { setTabBlocked(true); }, []));
 
   // ── URL auto-join ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -83,7 +78,7 @@ export default function App() {
     if (code && code.length === 6) {
       setAutoJoinCode(code.toUpperCase());
       setShowJoin(true);
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', '/');
     }
   }, []);
 
@@ -92,7 +87,6 @@ export default function App() {
     socket.connect();
 
     socket.on('connect', () => {
-      // Log to console only — never expose to UI
       console.log('[FilmiPaheli] Connected:', socket.id);
       setConnected(true);
       setConnError(false);
@@ -105,7 +99,6 @@ export default function App() {
     });
 
     socket.on('connect_error', (err) => {
-      // Keep technical details in console only
       console.error('[FilmiPaheli] Connection error:', err.message);
       setConnError(true);
       setConnected(false);
@@ -115,9 +108,6 @@ export default function App() {
     socket.io.on('reconnect', () => {
       setConnected(true);
       setConnError(false);
-
-      // If we were in a game when the connection dropped, silently re-join the room.
-      // This handles iOS background disconnect — user comes back to find game intact.
       const rd = roomDataRef.current;
       if (rd?.room?.id && rd?.playerName) {
         const sessionKey = `${rd.room.id}:${rd.playerName.toLowerCase()}`;
@@ -125,16 +115,12 @@ export default function App() {
           { roomId: rd.room.id, playerName: rd.playerName, sessionKey },
           ({ success, room: updatedRoom }) => {
             if (success && updatedRoom) {
-              // Update room data — this refreshes hostId, players, gameConfig in GamePage
               setRoomData(prev => prev ? {
                 ...prev,
                 room: updatedRoom,
-                // Re-derive isHost based on fresh server state
                 isHost: updatedRoom.hostId === socket.id,
               } : prev);
-              console.log('[FilmiPaheli] Rejoined room', rd.room.id, '| hostId:', updatedRoom.hostId, '| myId:', socket.id);
             } else {
-              // Room is gone — host left during the outage
               showToast('Reconnected, but the party ended while you were away.', 'info', 4000);
               setView('dashboard');
               setRoomData(null);
@@ -162,7 +148,6 @@ export default function App() {
     };
   }, [showToast]);
 
-
   function handleRoomReady(data) {
     setRoomData(data);
     setView('game');
@@ -178,32 +163,19 @@ export default function App() {
     setRoomData(null);
   }
 
-  // ── Tab blocked screen — persistent, no way to dismiss ───────────────────
+  // ── Tab blocked screen ────────────────────────────────────────────────────
   if (tabBlocked) {
     return (
       <div className="bg-cinema min-h-screen flex items-center justify-center px-4">
         <div className="card-dark rounded-2xl p-8 w-full max-w-sm text-center space-y-4">
           <div className="text-5xl">🎬</div>
-          <h2 className="font-display font-bold text-2xl text-gold-400">
-            FilmiPaheli is open in another tab
-          </h2>
+          <h2 className="font-display font-bold text-2xl text-gold-400">FilmiPaheli is open in another tab</h2>
           <p className="text-gold-700 text-sm font-body leading-relaxed">
             Only one tab can run FilmiPaheli at a time. Please close this tab and use the other one.
           </p>
           <div className="pt-2 space-y-2">
-            <button
-              onClick={() => window.close()}
-              className="btn-gold w-full py-3"
-            >
-              Close This Tab
-            </button>
-            <button
-              onClick={() => {
-                reclaimTab();       // sends CLAIM to boot the other tab
-                setTabBlocked(false);
-              }}
-              className="btn-ghost w-full py-2 text-xs"
-            >
+            <button onClick={() => window.close()} className="btn-gold w-full py-3">Close This Tab</button>
+            <button onClick={() => { reclaimTab(); setTabBlocked(false); }} className="btn-ghost w-full py-2 text-xs">
               Use This Tab Instead
             </button>
           </div>
@@ -219,44 +191,35 @@ export default function App() {
         {toast && <Toast type={toast.type} message={toast.message} />}
         <div className="card-dark rounded-2xl p-8 w-full max-w-md text-center">
           <div className="text-5xl mb-4">🔌</div>
-          <h2 className="font-display font-bold text-2xl text-crimson-400 mb-3">
-            Unable to Connect
-          </h2>
+          <h2 className="font-display font-bold text-2xl text-crimson-400 mb-3">Unable to Connect</h2>
           <p className="text-gold-700 text-sm font-body mb-6 leading-relaxed">
-            FilmiPaheli is having trouble reaching the game server. This is usually temporary.
-            Please check your internet connection and try again.
+            FilmiPaheli is having trouble reaching the game server. This is usually temporary. Please check your internet connection and try again.
           </p>
           <div className="flex gap-3">
-            <button
-              onClick={() => { setConnError(false); setConnAttempts(0); socket.connect(); }}
-              className="btn-gold flex-1 py-3"
-            >
-              🔄 Try Again
-            </button>
-            <button
-              onClick={() => window.location.reload()}
-              className="btn-ghost flex-1 py-3"
-            >
-              Reload Page
-            </button>
+            <button onClick={() => { setConnError(false); setConnAttempts(0); socket.connect(); }} className="btn-gold flex-1 py-3">🔄 Try Again</button>
+            <button onClick={() => window.location.reload()} className="btn-ghost flex-1 py-3">Reload Page</button>
           </div>
-          <p className="text-gold-800 text-xs mt-4 font-body">
-            If the problem persists, the server may be restarting. Please wait a moment and try again.
-          </p>
+          <p className="text-gold-800 text-xs mt-4 font-body">If the problem persists, the server may be restarting. Please wait a moment and try again.</p>
         </div>
       </div>
     );
   }
 
-  // ── Legal / info pages ────────────────────────────────────────────────────
-  if (legalPage === 'faq')        return <FAQ onBack={goBack} />;
-  if (legalPage === 'daily')       return <DailyChallenge onBack={goBack} />;
-  if (legalPage === 'vscomputer')  return <VsComputer onBack={goBack} />;
-  if (legalPage === 'terms')      return <TermsAndConditions onBack={goBack} />;
-  if (legalPage === 'privacy')    return <PrivacyPolicy onBack={goBack} />;
-  if (legalPage === 'disclaimer') return <Disclaimer onBack={goBack} />;
-  if (legalPage === 'howtoplay')  return <HowToPlay onBack={goBack} />;
+  // ── Path-routed pages (no socket needed) ─────────────────────────────────
+  if (page === 'faq')        return <FAQ onBack={goHome} />;
+  if (page === 'howtoplay')  return <HowToPlay onBack={goHome} />;
+  if (page === 'terms')      return <TermsAndConditions onBack={goHome} />;
+  if (page === 'privacy')    return <PrivacyPolicy onBack={goHome} />;
+  if (page === 'disclaimer') return <Disclaimer onBack={goHome} />;
+  if (page === 'daily')      return <DailyChallenge onBack={goHome} />;
+  if (page === 'vscomputer') return <VsComputer onBack={goHome} />;
+  if (page === 'blog')       return <Blog onBack={goHome} />;
+  if (page === 'blogpost') {
+    const slug = currentPath.replace('/blog/', '');
+    return <BlogPost slug={slug} onBack={goHome} />;
+  }
 
+  // ── Main app ──────────────────────────────────────────────────────────────
   return (
     <div className="bg-cinema min-h-screen">
       {toast && <Toast type={toast.type} message={toast.message} />}
@@ -273,8 +236,9 @@ export default function App() {
           <Dashboard
             onCreateParty={() => setShowCreate(true)}
             onJoinParty={() => setShowJoin(true)}
-            onDailyChallenge={() => { window.location.hash = '#daily'; }}
-            onVsComputer={() => { window.location.hash = '#vs-computer'; }}
+            onDailyChallenge={() => navigate('/daily')}
+            onVsComputer={() => navigate('/vs-computer')}
+            onBlog={() => navigate('/blog')}
           />
           {showCreate && (
             <CreatePartyModal onClose={() => setShowCreate(false)} onRoomReady={handleRoomReady} showToast={showToast} isConnected={connected} />

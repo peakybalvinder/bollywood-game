@@ -1,4 +1,5 @@
 import React from 'react';
+import { navigate } from '../router';
 import Footer   from './Footer';
 import AdBanner from './AdBanner';
 import { getDayNumber, getDailyMovie, getTodayKey } from '../data/bollywoodMovies';
@@ -122,11 +123,11 @@ export default function Dashboard({ onCreateParty, onJoinParty, onDailyChallenge
 
         {/* Quick links */}
         <div className="flex gap-4 text-xs font-body">
-          <button onClick={() => { window.location.hash = '#how-to-play'; }}
+          <button onClick={() => navigate('/how-to-play')}
             className="text-gold-600 hover:text-gold-400 underline-offset-2 hover:underline transition-colors">
             How to Play →
           </button>
-          <button onClick={() => { window.location.hash = '#faq'; }}
+          <button onClick={() => navigate('/faq')}
             className="text-gold-600 hover:text-gold-400 underline-offset-2 hover:underline transition-colors">
             FAQ →
           </button>

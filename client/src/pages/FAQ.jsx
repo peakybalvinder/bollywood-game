@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { setPageMeta } from '../router';
 import LegalPage, { Section, P, Ul, Highlight } from './LegalPage';
 
 function Accordion({ q, children }) {
@@ -22,6 +23,15 @@ function Accordion({ q, children }) {
 }
 
 export default function FAQ({ onBack }) {
+  React.useEffect(() => {
+    setPageMeta({
+      title: 'FAQ — FilmiPaheli | Bollywood Game Questions Answered',
+      description: 'Frequently asked questions about FilmiPaheli, the free multiplayer Bollywood movie guessing game. Rules, gameplay, sessions, anti-cheat and more.',
+      canonical: 'https://www.filmipaheli.com/faq',
+    });
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <LegalPage title="FAQ" onBack={onBack}>
 

@@ -1,4 +1,5 @@
 import React from 'react';
+import { setPageMeta } from '../router';
 import LegalPage, { Section, P, Ul, Highlight } from './LegalPage';
 
 const STEPS = [
@@ -11,6 +12,15 @@ const STEPS = [
 ];
 
 export default function HowToPlay({ onBack }) {
+  React.useEffect(() => {
+    setPageMeta({
+      title: 'How to Play FilmiPaheli — Bollywood Movie Guessing Game',
+      description: 'Complete guide to playing FilmiPaheli. Learn the rules, scoring system, multiplayer flow, hint system, and tips for winning every round.',
+      canonical: 'https://www.filmipaheli.com/how-to-play',
+    });
+    window.scrollTo(0, 0);
+  }, []);
+
   return (
     <LegalPage title="How to Play" onBack={onBack}>
 
